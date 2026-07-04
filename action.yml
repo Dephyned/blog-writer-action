@@ -1,0 +1,54 @@
+name: 'Blog Writer Action'
+description: 'Generates SEO-optimized blog posts using Claude Code CLI'
+author: 'Dephyned'
+
+branding:
+  icon: 'edit-3'
+  color: 'blue'
+
+inputs:
+  anthropic-api-key:
+    description: 'API key for Claude Code CLI'
+    required: true
+  config-path:
+    description: 'Path to blog.config.json in the consuming repo'
+    required: false
+    default: 'blog.config.json'
+  topic:
+    description: 'Manual topic override (empty = use schedule from config)'
+    required: false
+    default: ''
+  location:
+    description: 'Manual location override (empty = use rotation from config)'
+    required: false
+    default: ''
+  auto-commit:
+    description: 'Automatically commit and push changes'
+    required: false
+    default: 'true'
+  commit-push-branch:
+    description: 'Branch to push commits to'
+    required: false
+    default: 'main'
+  install-dependencies:
+    description: 'Run npm ci before blog generation'
+    required: false
+    default: 'true'
+
+outputs:
+  topic:
+    description: 'The topic used for the blog post'
+  location:
+    description: 'The location used for the blog post'
+  date:
+    description: 'The date of the blog post (YYYY-MM-DD)'
+  committed:
+    description: 'Whether changes were committed (true/false)'
+  post-slug:
+    description: 'Generated slug for the blog post'
+  post-title:
+    description: 'Generated title for the blog post'
+
+runs:
+  using: 'node20'
+  main: 'dist/index.js'

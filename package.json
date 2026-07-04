@@ -1,0 +1,33 @@
+{
+  "name": "blog-writer-action",
+  "version": "1.0.0",
+  "description": "GitHub Action that generates SEO-optimized blog posts using Claude Code CLI",
+  "main": "dist/index.js",
+  "scripts": {
+    "embed-prompt": "node scripts/embed-prompt.js",
+    "build": "npm run embed-prompt && ncc build src/index.js -o dist",
+    "test": "jest --verbose",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "lint": "eslint src/ scripts/ __tests__/"
+  },
+  "keywords": [
+    "github-action",
+    "blog",
+    "seo",
+    "claude",
+    "content-generation"
+  ],
+  "author": "Dephyned",
+  "license": "MIT",
+  "dependencies": {
+    "@actions/core": "^1.10.1",
+    "@actions/exec": "^1.1.1",
+    "@actions/github": "^6.0.0"
+  },
+  "devDependencies": {
+    "@vercel/ncc": "^0.38.3",
+    "eslint": "^8.57.0",
+    "jest": "^29.7.0"
+  }
+}
