@@ -3,6 +3,8 @@ const path = require('path');
 const core = require('@actions/core');
 const { installClaudeCli, runClaude } = require('./claude');
 const { commitFiles } = require('./commit');
+const { installDependencies } = require('./dependencies');
+const { ensureWorkingBuild } = require('./build-check');
 const { DEFAULT_PROMPT_TEMPLATE } = require('./default-prompt');
 const { SETUP_PROMPT_TEMPLATE } = require('./setup-prompt-template');
 const {
@@ -64,10 +66,10 @@ function isMissing(value) {
 }
 
 /**
- * Checks the config and prompt Claude wrote, and returns the prompt template path.
+ * Checks the config and prompt Claude wrote.
  * @param {string} repoRoot - Repo root directory
  * @param {string} configPath - Repo-relative config path
- * @returns {string} Repo-relative prompt template path
+ * @returns {{config: object, promptTemplatePath: string}}
  */
 function validateSetupOutput(repoRoot, configPath) {
   const fullConfigPath = path.join(repoRoot, configPath);
@@ -94,7 +96,7 @@ function validateSetupOutput(repoRoot, configPath) {
     throw new Error(ERROR_SETUP_PROMPT_MISSING + promptTemplatePath);
   }
 
-  return promptTemplatePath;
+  return { config, promptTemplatePath };
 }
 
 /**
@@ -122,7 +124,13 @@ async function runSetup({ repoRoot, configPath, branch }) {
   });
 
   checkForNoBlog(repoRoot);
-  const promptTemplatePath = validateSetupOutput(repoRoot, configPath);
+  const { config, promptTemplatePath } = validateSetupOutput(repoRoot, configPath);
+
+  // Claude can only guess the build command from the files, so prove it works
+  // here; a broken one is fixed or turned off before the config is saved
+  await installDependencies({ repoRoot, config });
+  const buildCheck = await ensureWorkingBuild({ repoRoot, configPath, config });
+  core.info('Build check: ' + buildCheck);
 
   core.info('Committing setup files...');
   await commitFiles({ repoRoot, files: [configPath, promptTemplatePath], message: SETUP_COMMIT_MESSAGE, branch });

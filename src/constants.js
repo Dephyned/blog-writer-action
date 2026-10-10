@@ -49,6 +49,27 @@ const DEPENDENCY_INSTALL_NO_LOCKFILE = [['npm', ['install', '--no-audit', '--no-
 const DEPENDENCIES_SKIPPED = 'skipped';
 const DEPENDENCIES_INSTALLED = 'installed';
 
+// Build check: the action runs the build; Claude only reads the error and edits
+// the config (to fix the command) or the new post (to fix the post)
+const BUILD_ENV_OVERRIDES = { CI: 'false' };
+const BUILD_OUTPUT_TAIL_LINES = 120;
+const FIX_ALLOWED_TOOLS = 'Read,Edit,Glob,Grep';
+const FIX_BUILD_MAX_TURNS = 15;
+const FIX_POST_MAX_TURNS = 10;
+const POST_STASH_MESSAGE = 'blog-writer-post';
+const BUILD_REPAIR_COMMIT_MESSAGE = 'fix(blog): repair blog build command';
+const BUILD_DISABLE_COMMIT_MESSAGE = 'fix(blog): turn off blog build check that cannot run in CI';
+const BUILD_CHECK_NONE = 'none';
+const BUILD_CHECK_PASSED = 'passed';
+const BUILD_CHECK_FIXED = 'fixed';
+const BUILD_CHECK_DISABLED = 'disabled';
+const BUILD_CHECK_REPAIRED = 'repaired';
+const BUILD_CHECK_POST_FIXED = 'post-fixed';
+const PLACEHOLDER_BUILD_COMMAND = '{{BUILD_COMMAND}}';
+const PLACEHOLDER_BUILD_OUTPUT = '{{BUILD_OUTPUT}}';
+const PLACEHOLDER_POST_FILES = '{{POST_FILES}}';
+const ERROR_POST_BROKE_BUILD = 'The new post broke the build and could not be fixed, so it was discarded';
+
 // Action modes
 const MODE_GENERATE = 'generate';
 const MODE_SETUP = 'setup';
@@ -114,6 +135,24 @@ const BRIEF_EXCLUDED_PATTERNS = [
 ];
 
 module.exports = {
+  BUILD_ENV_OVERRIDES,
+  BUILD_OUTPUT_TAIL_LINES,
+  FIX_ALLOWED_TOOLS,
+  FIX_BUILD_MAX_TURNS,
+  FIX_POST_MAX_TURNS,
+  POST_STASH_MESSAGE,
+  BUILD_REPAIR_COMMIT_MESSAGE,
+  BUILD_DISABLE_COMMIT_MESSAGE,
+  BUILD_CHECK_NONE,
+  BUILD_CHECK_PASSED,
+  BUILD_CHECK_FIXED,
+  BUILD_CHECK_DISABLED,
+  BUILD_CHECK_REPAIRED,
+  BUILD_CHECK_POST_FIXED,
+  PLACEHOLDER_BUILD_COMMAND,
+  PLACEHOLDER_BUILD_OUTPUT,
+  PLACEHOLDER_POST_FILES,
+  ERROR_POST_BROKE_BUILD,
   PACKAGE_JSON,
   DEPENDENCY_INSTALLERS,
   DEPENDENCY_INSTALL_NO_LOCKFILE,

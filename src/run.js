@@ -4,7 +4,7 @@ const { resolveParameters } = require('./parameters');
 const { buildPrompt } = require('./prompt');
 const { installClaudeCli, runClaude } = require('./claude');
 const { runValidation } = require('./validate');
-const { runBuild } = require('./build');
+const { verifyPostBuild } = require('./build-check');
 const { commitAndPush } = require('./commit');
 const { resolveMode } = require('./mode');
 const { runSetup } = require('./setup');
@@ -85,8 +85,14 @@ async function run() {
     // 7. Run validation (if configured)
     await runValidation(config.validationCommand);
 
-    // 8. Run build (if configured)
-    await runBuild(config.buildCommand);
+    // 8. Check the site still builds with the post, fixing the command or the post if not
+    const buildCheck = await verifyPostBuild({
+      repoRoot: process.cwd(),
+      configPath,
+      config,
+      branch: commitPushBranch,
+    });
+    core.setOutput('build-check', buildCheck);
 
     // 9. Commit and push (if auto-commit enabled)
     let committed = false;

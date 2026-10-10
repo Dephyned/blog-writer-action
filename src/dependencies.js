@@ -43,6 +43,9 @@ function pnpmCommands(repoRoot) {
   return [['npm', ['install', '-g', `pnpm@${major}`]], PNPM_INSTALL];
 }
 
+// A first run installs during setup and again before the post; once is enough
+const installedRoots = new Set();
+
 /**
  * Installs the repo's packages, but only when a build or validation command will
  * use them. The package manager is picked from the lockfile at the repo root.
@@ -63,6 +66,8 @@ async function installDependencies({ repoRoot, config }) {
     return DEPENDENCIES_SKIPPED;
   }
 
+  if (installedRoots.has(repoRoot)) return DEPENDENCIES_INSTALLED;
+
   const installer = DEPENDENCY_INSTALLERS.find(({ lockfile }) => exists(lockfile));
   let commands = DEPENDENCY_INSTALL_NO_LOCKFILE;
   if (installer) {
@@ -75,6 +80,7 @@ async function installDependencies({ repoRoot, config }) {
   for (const [command, args] of commands) {
     await exec.exec(command, args, { cwd: repoRoot });
   }
+  installedRoots.add(repoRoot);
   return DEPENDENCIES_INSTALLED;
 }
 

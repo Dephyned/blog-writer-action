@@ -12,6 +12,8 @@ const PROMPTS = [
   { source: 'default-blog-post.md', output: 'default-prompt.js', exportName: 'DEFAULT_PROMPT_TEMPLATE' },
   { source: 'setup.md', output: 'setup-prompt-template.js', exportName: 'SETUP_PROMPT_TEMPLATE' },
   { source: 'brief.md', output: 'brief-prompt-template.js', exportName: 'BRIEF_PROMPT_TEMPLATE' },
+  { source: 'fix-build.md', output: 'fix-build-prompt-template.js', exportName: 'FIX_BUILD_PROMPT_TEMPLATE' },
+  { source: 'fix-post.md', output: 'fix-post-prompt-template.js', exportName: 'FIX_POST_PROMPT_TEMPLATE' },
 ];
 
 for (const { source, output, exportName } of PROMPTS) {

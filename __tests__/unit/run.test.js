@@ -7,6 +7,7 @@ const { refreshBrief } = require('../../src/brief');
 const { runClaude } = require('../../src/claude');
 const { commitAndPush } = require('../../src/commit');
 const { installDependencies } = require('../../src/dependencies');
+const { verifyPostBuild } = require('../../src/build-check');
 const { run } = require('../../src/run');
 
 jest.mock('@actions/core', () => ({
@@ -28,7 +29,7 @@ jest.mock('../../src/parameters', () => ({
 }));
 jest.mock('../../src/prompt', () => ({ buildPrompt: jest.fn(() => 'the prompt') }));
 jest.mock('../../src/validate', () => ({ runValidation: jest.fn() }));
-jest.mock('../../src/build', () => ({ runBuild: jest.fn() }));
+jest.mock('../../src/build-check', () => ({ verifyPostBuild: jest.fn(async () => 'passed') }));
 jest.mock('../../src/commit', () => ({ commitAndPush: jest.fn(async () => true) }));
 jest.mock('../../src/dependencies', () => ({ installDependencies: jest.fn(async () => 'skipped') }));
 
@@ -169,6 +170,41 @@ describe('Feature: Running the action', () => {
       readConfig.mockReturnValue(SERVICE_CONFIG);
       await run();
       expect(installDependencies).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Scenario: Checking the build after the post', () => {
+    it('Given a post was written, When the build is checked, Then it is checked before committing with the config and push branch', async () => {
+      // Given
+      resolveMode.mockReturnValue('generate');
+      readConfig.mockReturnValue(SERVICE_CONFIG);
+      verifyPostBuild.mockImplementation(track('build-check', async () => 'passed'));
+
+      // When
+      await run();
+
+      // Then
+      expect(callOrder).toEqual(['post', 'build-check', 'commit']);
+      expect(verifyPostBuild).toHaveBeenCalledWith({
+        repoRoot: process.cwd(),
+        configPath: 'blog.config.json',
+        config: SERVICE_CONFIG,
+        branch: 'main',
+      });
+    });
+
+    it('Given the post broke the build and could not be fixed, When the action runs, Then it fails without committing', async () => {
+      // Given
+      resolveMode.mockReturnValue('generate');
+      readConfig.mockReturnValue(SERVICE_CONFIG);
+      verifyPostBuild.mockRejectedValue(new Error('The new post broke the build'));
+
+      // When
+      await run();
+
+      // Then
+      expect(core.setFailed).toHaveBeenCalledWith(expect.stringContaining('broke the build'));
+      expect(commitAndPush).not.toHaveBeenCalled();
     });
   });
 });

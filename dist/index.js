@@ -25851,34 +25851,187 @@ module.exports = { filterSourceFiles, isBriefStale, refreshBrief };
 
 /***/ }),
 
-/***/ 9501:
+/***/ 6660:
 /***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
 
+const fs = __nccwpck_require__(9896);
+const path = __nccwpck_require__(6928);
 const core = __nccwpck_require__(7484);
 const exec = __nccwpck_require__(5236);
-const { ERROR_BUILD_FAILED } = __nccwpck_require__(9992);
+const { runClaude } = __nccwpck_require__(6591);
+const { commitFiles } = __nccwpck_require__(620);
+const { FIX_BUILD_PROMPT_TEMPLATE } = __nccwpck_require__(7597);
+const { FIX_POST_PROMPT_TEMPLATE } = __nccwpck_require__(7051);
+const {
+  BUILD_ENV_OVERRIDES,
+  BUILD_OUTPUT_TAIL_LINES,
+  FIX_ALLOWED_TOOLS,
+  FIX_BUILD_MAX_TURNS,
+  FIX_POST_MAX_TURNS,
+  POST_STASH_MESSAGE,
+  BUILD_REPAIR_COMMIT_MESSAGE,
+  BUILD_DISABLE_COMMIT_MESSAGE,
+  BUILD_CHECK_NONE,
+  BUILD_CHECK_PASSED,
+  BUILD_CHECK_FIXED,
+  BUILD_CHECK_DISABLED,
+  BUILD_CHECK_REPAIRED,
+  BUILD_CHECK_POST_FIXED,
+  PLACEHOLDER_CONFIG_PATH,
+  PLACEHOLDER_BUILD_COMMAND,
+  PLACEHOLDER_BUILD_OUTPUT,
+  PLACEHOLDER_POST_FILES,
+  ERROR_POST_BROKE_BUILD,
+} = __nccwpck_require__(9992);
 
 /**
- * Runs the build command if one is configured.
- * @param {string} buildCommand - Shell command to run
+ * Every repo builds differently (monorepos, secrets, services CI lacks), so the
+ * configured build command can't be trusted blindly. These checks run the build,
+ * and when it fails work out whether the command or the new post is to blame.
+ * Claude never runs commands here: it only reads the error and edits files.
  */
-async function runBuild(buildCommand) {
-  if (!buildCommand) {
-    core.info('No build command configured, skipping.');
-    return;
-  }
 
-  core.info('Running build: ' + buildCommand);
-  try {
-    await exec.exec('bash', ['-c', buildCommand], {
-      env: { ...process.env, CI: 'false' },
-    });
-  } catch (err) {
-    throw new Error(ERROR_BUILD_FAILED + ': ' + err.message);
-  }
+function tail(text) {
+  return text.split('\n').slice(-BUILD_OUTPUT_TAIL_LINES).join('\n');
 }
 
-module.exports = { runBuild };
+/**
+ * @returns {Promise<{ok: boolean, output: string}>}
+ */
+async function tryBuild(repoRoot, buildCommand) {
+  core.info('Running build: ' + buildCommand);
+  const { exitCode, stdout, stderr } = await exec.getExecOutput('bash', ['-c', buildCommand], {
+    cwd: repoRoot,
+    ignoreReturnCode: true,
+    env: { ...process.env, ...BUILD_ENV_OVERRIDES },
+  });
+  return { ok: exitCode === 0, output: tail(`${stdout}\n${stderr}`.trim()) };
+}
+
+function readConfigFile(repoRoot, configPath) {
+  return JSON.parse(fs.readFileSync(path.join(repoRoot, configPath), 'utf8'));
+}
+
+function writeConfigFile(repoRoot, configPath, config) {
+  fs.writeFileSync(path.join(repoRoot, configPath), JSON.stringify(config, null, 2) + '\n', 'utf8');
+}
+
+/**
+ * Gives Claude one chance to correct the build command. Keeps the new command
+ * only if it builds; otherwise turns the build check off.
+ * @returns {Promise<{status: string, buildCommand: string}>}
+ */
+async function repairBuildCommand({ repoRoot, configPath, buildCommand, output }) {
+  core.warning('The build fails even without a new post, asking Claude to fix the build command.');
+  const prompt = FIX_BUILD_PROMPT_TEMPLATE
+    .split(PLACEHOLDER_CONFIG_PATH).join(configPath)
+    .split(PLACEHOLDER_BUILD_COMMAND).join(buildCommand)
+    .split(PLACEHOLDER_BUILD_OUTPUT).join(output);
+  await runClaude(prompt, { allowedTools: FIX_ALLOWED_TOOLS, maxTurns: FIX_BUILD_MAX_TURNS });
+
+  const proposed = readConfigFile(repoRoot, configPath).buildCommand;
+  if (proposed && proposed !== buildCommand && (await tryBuild(repoRoot, proposed)).ok) {
+    core.info('Build command fixed: ' + proposed);
+    return { status: BUILD_CHECK_FIXED, buildCommand: proposed };
+  }
+
+  core.warning('Could not find a build command that works in CI, turning the build check off for this repo.');
+  writeConfigFile(repoRoot, configPath, { ...readConfigFile(repoRoot, configPath), buildCommand: '' });
+  return { status: BUILD_CHECK_DISABLED, buildCommand: '' };
+}
+
+/**
+ * Setup: confirms the configured build works, fixing or turning it off if not.
+ * Leaves any config change uncommitted for setup to commit.
+ * @returns {Promise<string>} "none", "passed", "fixed" or "disabled"
+ */
+async function ensureWorkingBuild({ repoRoot, configPath, config }) {
+  if (!config.buildCommand) return BUILD_CHECK_NONE;
+
+  const first = await tryBuild(repoRoot, config.buildCommand);
+  if (first.ok) return BUILD_CHECK_PASSED;
+
+  const { status } = await repairBuildCommand({
+    repoRoot,
+    configPath,
+    buildCommand: config.buildCommand,
+    output: first.output,
+  });
+  return status;
+}
+
+async function git(repoRoot, args) {
+  await exec.exec('git', args, { cwd: repoRoot });
+}
+
+async function fixPost({ repoRoot, config, postFiles, output }) {
+  core.warning('The new post broke the build, asking Claude to fix it.');
+  const prompt = FIX_POST_PROMPT_TEMPLATE
+    .split(PLACEHOLDER_POST_FILES).join(postFiles.map((file) => `- ${file}`).join('\n'))
+    .split(PLACEHOLDER_BUILD_OUTPUT).join(output);
+  const model = config.claude && config.claude.model;
+  await runClaude(prompt, {
+    allowedTools: FIX_ALLOWED_TOOLS,
+    maxTurns: FIX_POST_MAX_TURNS,
+    ...(model ? { model } : {}),
+  });
+
+  const retry = await tryBuild(repoRoot, config.buildCommand);
+  if (retry.ok) return BUILD_CHECK_POST_FIXED;
+
+  await git(repoRoot, ['checkout', '--', ...postFiles]);
+  await git(repoRoot, ['clean', '-fd', '--', ...postFiles]);
+  throw new Error(ERROR_POST_BROKE_BUILD);
+}
+
+/**
+ * Daily run: checks the site still builds with the new post. If not, rebuilds
+ * without the post to see who is to blame. A broken command is fixed (or the
+ * check turned off) and committed, and the post is kept. A broken post gets one
+ * fix attempt and is discarded if it still fails.
+ * @returns {Promise<string>} "none", "passed", "repaired", "disabled" or "post-fixed"
+ */
+async function verifyPostBuild({ repoRoot, configPath, config, branch }) {
+  if (!config.buildCommand) return BUILD_CHECK_NONE;
+
+  const withPost = await tryBuild(repoRoot, config.buildCommand);
+  if (withPost.ok) return BUILD_CHECK_PASSED;
+
+  const postFiles = config.filesToCommit;
+  await git(repoRoot, ['stash', 'push', '--include-untracked', '--message', POST_STASH_MESSAGE, '--', ...postFiles]);
+
+  let baseline;
+  let repair = null;
+  try {
+    baseline = await tryBuild(repoRoot, config.buildCommand);
+    if (!baseline.ok) {
+      repair = await repairBuildCommand({
+        repoRoot,
+        configPath,
+        buildCommand: config.buildCommand,
+        output: baseline.output,
+      });
+      const message = repair.status === BUILD_CHECK_FIXED ? BUILD_REPAIR_COMMIT_MESSAGE : BUILD_DISABLE_COMMIT_MESSAGE;
+      await commitFiles({ repoRoot, files: [configPath], message, branch });
+    }
+  } finally {
+    await git(repoRoot, ['stash', 'pop']);
+  }
+
+  if (!repair) {
+    return fixPost({ repoRoot, config, postFiles, output: withPost.output });
+  }
+
+  if (repair.status === BUILD_CHECK_DISABLED) return BUILD_CHECK_DISABLED;
+
+  const repairedConfig = { ...config, buildCommand: repair.buildCommand };
+  const withFixedCommand = await tryBuild(repoRoot, repair.buildCommand);
+  if (withFixedCommand.ok) return BUILD_CHECK_REPAIRED;
+
+  return fixPost({ repoRoot, config: repairedConfig, postFiles, output: withFixedCommand.output });
+}
+
+module.exports = { ensureWorkingBuild, verifyPostBuild };
 
 
 /***/ }),
@@ -26155,6 +26308,27 @@ const DEPENDENCY_INSTALL_NO_LOCKFILE = [['npm', ['install', '--no-audit', '--no-
 const DEPENDENCIES_SKIPPED = 'skipped';
 const DEPENDENCIES_INSTALLED = 'installed';
 
+// Build check: the action runs the build; Claude only reads the error and edits
+// the config (to fix the command) or the new post (to fix the post)
+const BUILD_ENV_OVERRIDES = { CI: 'false' };
+const BUILD_OUTPUT_TAIL_LINES = 120;
+const FIX_ALLOWED_TOOLS = 'Read,Edit,Glob,Grep';
+const FIX_BUILD_MAX_TURNS = 15;
+const FIX_POST_MAX_TURNS = 10;
+const POST_STASH_MESSAGE = 'blog-writer-post';
+const BUILD_REPAIR_COMMIT_MESSAGE = 'fix(blog): repair blog build command';
+const BUILD_DISABLE_COMMIT_MESSAGE = 'fix(blog): turn off blog build check that cannot run in CI';
+const BUILD_CHECK_NONE = 'none';
+const BUILD_CHECK_PASSED = 'passed';
+const BUILD_CHECK_FIXED = 'fixed';
+const BUILD_CHECK_DISABLED = 'disabled';
+const BUILD_CHECK_REPAIRED = 'repaired';
+const BUILD_CHECK_POST_FIXED = 'post-fixed';
+const PLACEHOLDER_BUILD_COMMAND = '{{BUILD_COMMAND}}';
+const PLACEHOLDER_BUILD_OUTPUT = '{{BUILD_OUTPUT}}';
+const PLACEHOLDER_POST_FILES = '{{POST_FILES}}';
+const ERROR_POST_BROKE_BUILD = 'The new post broke the build and could not be fixed, so it was discarded';
+
 // Action modes
 const MODE_GENERATE = 'generate';
 const MODE_SETUP = 'setup';
@@ -26220,6 +26394,24 @@ const BRIEF_EXCLUDED_PATTERNS = [
 ];
 
 module.exports = {
+  BUILD_ENV_OVERRIDES,
+  BUILD_OUTPUT_TAIL_LINES,
+  FIX_ALLOWED_TOOLS,
+  FIX_BUILD_MAX_TURNS,
+  FIX_POST_MAX_TURNS,
+  POST_STASH_MESSAGE,
+  BUILD_REPAIR_COMMIT_MESSAGE,
+  BUILD_DISABLE_COMMIT_MESSAGE,
+  BUILD_CHECK_NONE,
+  BUILD_CHECK_PASSED,
+  BUILD_CHECK_FIXED,
+  BUILD_CHECK_DISABLED,
+  BUILD_CHECK_REPAIRED,
+  BUILD_CHECK_POST_FIXED,
+  PLACEHOLDER_BUILD_COMMAND,
+  PLACEHOLDER_BUILD_OUTPUT,
+  PLACEHOLDER_POST_FILES,
+  ERROR_POST_BROKE_BUILD,
   PACKAGE_JSON,
   DEPENDENCY_INSTALLERS,
   DEPENDENCY_INSTALL_NO_LOCKFILE,
@@ -26416,6 +26608,9 @@ function pnpmCommands(repoRoot) {
   return [['npm', ['install', '-g', `pnpm@${major}`]], PNPM_INSTALL];
 }
 
+// A first run installs during setup and again before the post; once is enough
+const installedRoots = new Set();
+
 /**
  * Installs the repo's packages, but only when a build or validation command will
  * use them. The package manager is picked from the lockfile at the repo root.
@@ -26436,6 +26631,8 @@ async function installDependencies({ repoRoot, config }) {
     return DEPENDENCIES_SKIPPED;
   }
 
+  if (installedRoots.has(repoRoot)) return DEPENDENCIES_INSTALLED;
+
   const installer = DEPENDENCY_INSTALLERS.find(({ lockfile }) => exists(lockfile));
   let commands = DEPENDENCY_INSTALL_NO_LOCKFILE;
   if (installer) {
@@ -26448,10 +26645,80 @@ async function installDependencies({ repoRoot, config }) {
   for (const [command, args] of commands) {
     await exec.exec(command, args, { cwd: repoRoot });
   }
+  installedRoots.add(repoRoot);
   return DEPENDENCIES_INSTALLED;
 }
 
 module.exports = { installDependencies };
+
+
+/***/ }),
+
+/***/ 7597:
+/***/ ((module) => {
+
+// Auto-generated by scripts/embed-prompt.js — do not edit manually
+const FIX_BUILD_PROMPT_TEMPLATE = `# Fix the Blog Build Command
+
+The blog writer checks that this site still builds after each new post. The build command in \`{{CONFIG_PATH}}\` fails even without a new post, so the command itself is wrong for this repo or for CI.
+
+## The Failing Command
+
+\`{{BUILD_COMMAND}}\`
+
+## End of the Build Output
+
+\`\`\`
+{{BUILD_OUTPUT}}
+\`\`\`
+
+## Your Task
+
+Work out why it fails, then edit only the \`buildCommand\` field in \`{{CONFIG_PATH}}\`. Do not change any other file or field.
+
+Common causes and fixes:
+
+- **Monorepo packages not built first** (e.g. "Module not found" for a workspace package like \`@scope/shared\`): build the app together with its dependencies. pnpm: \`pnpm --filter <app>... build\`. npm workspaces: build the dependency workspaces first, then the app. Turborepo: \`npx turbo run build --filter=<app>...\`.
+- **Wrong package or path**: check \`package.json\` files and workspace config for the real app name and build script.
+- **Needs secrets, a database, or services that CI does not have** (missing environment variables, connection errors, auth failures): there is no command that fixes this. Set \`buildCommand\` to \`""\`.
+- **The repo's own code is broken** (type errors or syntax errors in files that are not blog posts): set \`buildCommand\` to \`""\`.
+
+Only pick a new command if you can see from the repo's files why it will work. If you are unsure, set it to \`""\`.
+`;
+
+module.exports = { FIX_BUILD_PROMPT_TEMPLATE };
+
+
+/***/ }),
+
+/***/ 7051:
+/***/ ((module) => {
+
+// Auto-generated by scripts/embed-prompt.js — do not edit manually
+const FIX_POST_PROMPT_TEMPLATE = `# Fix the New Blog Post
+
+You just added a blog post, and the site no longer builds. The site built fine without your post, so something in the post caused it.
+
+## Post Files
+
+{{POST_FILES}}
+
+## End of the Build Output
+
+\`\`\`
+{{BUILD_OUTPUT}}
+\`\`\`
+
+## Your Task
+
+Find the new post (it is the uncommitted change in the files above) and fix only that post so the site builds. Do not change existing posts or any other file.
+
+Common causes: unescaped characters for the format (backticks inside template literals, \`{\` or \`<\` in MDX, quotes in JSON), invalid frontmatter, a missing or wrong field, a duplicate slug, or a reference to a component or image that does not exist.
+
+Keep the post's content and meaning. Change only what the build needs.
+`;
+
+module.exports = { FIX_POST_PROMPT_TEMPLATE };
 
 
 /***/ }),
@@ -26632,7 +26899,7 @@ const { resolveParameters } = __nccwpck_require__(1125);
 const { buildPrompt } = __nccwpck_require__(3479);
 const { installClaudeCli, runClaude } = __nccwpck_require__(6591);
 const { runValidation } = __nccwpck_require__(7579);
-const { runBuild } = __nccwpck_require__(9501);
+const { verifyPostBuild } = __nccwpck_require__(6660);
 const { commitAndPush } = __nccwpck_require__(620);
 const { resolveMode } = __nccwpck_require__(3394);
 const { runSetup } = __nccwpck_require__(3292);
@@ -26713,8 +26980,14 @@ async function run() {
     // 7. Run validation (if configured)
     await runValidation(config.validationCommand);
 
-    // 8. Run build (if configured)
-    await runBuild(config.buildCommand);
+    // 8. Check the site still builds with the post, fixing the command or the post if not
+    const buildCheck = await verifyPostBuild({
+      repoRoot: process.cwd(),
+      configPath,
+      config,
+      branch: commitPushBranch,
+    });
+    core.setOutput('build-check', buildCheck);
 
     // 9. Commit and push (if auto-commit enabled)
     let committed = false;
@@ -26885,6 +27158,8 @@ const path = __nccwpck_require__(6928);
 const core = __nccwpck_require__(7484);
 const { installClaudeCli, runClaude } = __nccwpck_require__(6591);
 const { commitFiles } = __nccwpck_require__(620);
+const { installDependencies } = __nccwpck_require__(1596);
+const { ensureWorkingBuild } = __nccwpck_require__(6660);
 const { DEFAULT_PROMPT_TEMPLATE } = __nccwpck_require__(3891);
 const { SETUP_PROMPT_TEMPLATE } = __nccwpck_require__(8386);
 const {
@@ -26946,10 +27221,10 @@ function isMissing(value) {
 }
 
 /**
- * Checks the config and prompt Claude wrote, and returns the prompt template path.
+ * Checks the config and prompt Claude wrote.
  * @param {string} repoRoot - Repo root directory
  * @param {string} configPath - Repo-relative config path
- * @returns {string} Repo-relative prompt template path
+ * @returns {{config: object, promptTemplatePath: string}}
  */
 function validateSetupOutput(repoRoot, configPath) {
   const fullConfigPath = path.join(repoRoot, configPath);
@@ -26976,7 +27251,7 @@ function validateSetupOutput(repoRoot, configPath) {
     throw new Error(ERROR_SETUP_PROMPT_MISSING + promptTemplatePath);
   }
 
-  return promptTemplatePath;
+  return { config, promptTemplatePath };
 }
 
 /**
@@ -27004,7 +27279,13 @@ async function runSetup({ repoRoot, configPath, branch }) {
   });
 
   checkForNoBlog(repoRoot);
-  const promptTemplatePath = validateSetupOutput(repoRoot, configPath);
+  const { config, promptTemplatePath } = validateSetupOutput(repoRoot, configPath);
+
+  // Claude can only guess the build command from the files, so prove it works
+  // here; a broken one is fixed or turned off before the config is saved
+  await installDependencies({ repoRoot, config });
+  const buildCheck = await ensureWorkingBuild({ repoRoot, configPath, config });
+  core.info('Build check: ' + buildCheck);
 
   core.info('Committing setup files...');
   await commitFiles({ repoRoot, files: [configPath, promptTemplatePath], message: SETUP_COMMIT_MESSAGE, branch });

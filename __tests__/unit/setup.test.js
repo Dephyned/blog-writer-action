@@ -3,7 +3,12 @@ const os = require('os');
 const path = require('path');
 const exec = require('@actions/exec');
 const { installClaudeCli, runClaude } = require('../../src/claude');
+const { installDependencies } = require('../../src/dependencies');
+const { ensureWorkingBuild } = require('../../src/build-check');
 const { runSetup } = require('../../src/setup');
+
+jest.mock('../../src/dependencies', () => ({ installDependencies: jest.fn() }));
+jest.mock('../../src/build-check', () => ({ ensureWorkingBuild: jest.fn() }));
 
 jest.mock('@actions/exec', () => ({
   exec: jest.fn(),
@@ -262,6 +267,35 @@ describe('Feature: Setup mode', () => {
       const prompt = runClaude.mock.calls[0][0];
       expect(prompt).toContain('productBrief');
       expect(prompt).toContain('{{PRODUCT_BRIEF_PATH}}');
+    });
+  });
+
+  describe('Scenario: Checking the build before saving the setup', () => {
+    it('Given Claude wrote a config, When setup finishes, Then dependencies are installed and the build is checked before anything is committed', async () => {
+      // Given
+      const order = [];
+      installDependencies.mockImplementation(async () => order.push('install'));
+      ensureWorkingBuild.mockImplementation(async () => order.push('build-check'));
+      exec.exec.mockImplementation(async (cmd, args) => {
+        if (args[0] === 'commit') order.push('commit');
+        return 0;
+      });
+      claudeWrites(repoRoot, {
+        [CONFIG_PATH]: JSON.stringify(VALID_CONFIG),
+        [PROMPT_PATH]: '# prompt',
+      });
+
+      // When
+      await runSetup({ repoRoot, configPath: CONFIG_PATH, branch: 'main' });
+
+      // Then
+      expect(order).toEqual(['install', 'build-check', 'commit']);
+      expect(installDependencies).toHaveBeenCalledWith({ repoRoot, config: expect.objectContaining(VALID_CONFIG) });
+      expect(ensureWorkingBuild).toHaveBeenCalledWith({
+        repoRoot,
+        configPath: CONFIG_PATH,
+        config: expect.objectContaining({ filesToCommit: VALID_CONFIG.filesToCommit }),
+      });
     });
   });
 });
