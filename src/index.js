@@ -7,7 +7,9 @@ const { installClaudeCli, runClaude } = require('./claude');
 const { runValidation } = require('./validate');
 const { runBuild } = require('./build');
 const { commitAndPush } = require('./commit');
-const { DEFAULT_CONFIG_PATH, DEFAULT_COMMIT_PUSH_BRANCH } = require('./constants');
+const { resolveMode } = require('./mode');
+const { runSetup } = require('./setup');
+const { DEFAULT_CONFIG_PATH, DEFAULT_COMMIT_PUSH_BRANCH, MODE_SETUP } = require('./constants');
 
 async function run() {
   try {
@@ -22,6 +24,18 @@ async function run() {
     const autoCommit = core.getInput('auto-commit') !== 'false';
     const commitPushBranch = core.getInput('commit-push-branch') || DEFAULT_COMMIT_PUSH_BRANCH;
     const installDependencies = core.getInput('install-dependencies') !== 'false';
+    const mode = resolveMode(core.getInput('mode'), configPath);
+    core.setOutput('mode', mode);
+
+    if (mode === MODE_SETUP) {
+      const setupResult = await runSetup({
+        repoRoot: process.cwd(),
+        configPath,
+        branch: commitPushBranch,
+      });
+      core.setOutput('setup-result', setupResult);
+      return;
+    }
 
     // 2. Install project dependencies (if enabled)
     if (installDependencies) {

@@ -30,12 +30,20 @@ inputs:
     description: 'Branch to push commits to'
     required: false
     default: 'main'
+  mode:
+    description: 'generate (default) writes a post, setup has Claude write blog.config.json and the prompt for this repo, auto runs setup when there is no config yet and generate otherwise'
+    required: false
+    default: 'generate'
   install-dependencies:
     description: 'Run npm ci before blog generation'
     required: false
     default: 'true'
 
 outputs:
+  mode:
+    description: 'The mode that ran (generate or setup)'
+  setup-result:
+    description: 'In setup mode, completed or skipped'
   topic:
     description: 'The topic used for the blog post'
   location:

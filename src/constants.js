@@ -31,6 +31,33 @@ const ERROR_POST_COUNT_COMMAND_FAILED = 'Post count command failed, defaulting t
 // Claude Code CLI
 const CLAUDE_CLI_PACKAGE = '@anthropic-ai/claude-code';
 
+// Action modes
+const MODE_GENERATE = 'generate';
+const MODE_SETUP = 'setup';
+const MODE_AUTO = 'auto';
+const VALID_MODES = [MODE_GENERATE, MODE_SETUP, MODE_AUTO];
+
+// Setup mode
+const SETUP_ALLOWED_TOOLS = 'Read,Write,Edit,Glob,Grep';
+const SETUP_MAX_TURNS = 40;
+const SETUP_RESULT_PATH = '.blog-setup-result.json';
+const SETUP_STATUS_NO_BLOG = 'no-blog';
+const SETUP_COMMIT_MESSAGE = 'chore(blog): set up blog writer';
+const SETUP_REQUIRED_CONFIG_FIELDS = ['locations', 'topicSchedule', 'postCountCommand', 'filesToCommit'];
+const SETUP_RESULT_SKIPPED = 'skipped';
+const SETUP_RESULT_COMPLETED = 'completed';
+const PLACEHOLDER_CONFIG_PATH = '{{CONFIG_PATH}}';
+const PLACEHOLDER_PROMPT_TEMPLATE_PATH = '{{PROMPT_TEMPLATE_PATH}}';
+const PLACEHOLDER_SETUP_RESULT_PATH = '{{SETUP_RESULT_PATH}}';
+const PLACEHOLDER_DEFAULT_BLOG_PROMPT = '{{DEFAULT_BLOG_PROMPT}}';
+
+const ERROR_INVALID_MODE = 'Invalid mode: ';
+const ERROR_SETUP_NO_BLOG = 'Setup stopped, no blog found in this repo: ';
+const ERROR_SETUP_CONFIG_MISSING = 'Setup failed, Claude did not write a config file at: ';
+const ERROR_SETUP_CONFIG_INVALID = 'Setup failed, config is missing required fields: ';
+const ERROR_SETUP_CONFIG_UNPARSEABLE = 'Setup failed, config is not valid JSON: ';
+const ERROR_SETUP_PROMPT_MISSING = 'Setup failed, Claude did not write a prompt template at: ';
+
 module.exports = {
   DEFAULT_CONFIG_PATH,
   DEFAULT_PROMPT_TEMPLATE_PATH,
@@ -55,4 +82,26 @@ module.exports = {
   ERROR_COMMIT_FAILED,
   ERROR_POST_COUNT_COMMAND_FAILED,
   CLAUDE_CLI_PACKAGE,
+  MODE_GENERATE,
+  MODE_SETUP,
+  MODE_AUTO,
+  VALID_MODES,
+  SETUP_ALLOWED_TOOLS,
+  SETUP_MAX_TURNS,
+  SETUP_RESULT_PATH,
+  SETUP_STATUS_NO_BLOG,
+  SETUP_COMMIT_MESSAGE,
+  SETUP_REQUIRED_CONFIG_FIELDS,
+  SETUP_RESULT_SKIPPED,
+  SETUP_RESULT_COMPLETED,
+  PLACEHOLDER_CONFIG_PATH,
+  PLACEHOLDER_PROMPT_TEMPLATE_PATH,
+  PLACEHOLDER_SETUP_RESULT_PATH,
+  PLACEHOLDER_DEFAULT_BLOG_PROMPT,
+  ERROR_INVALID_MODE,
+  ERROR_SETUP_NO_BLOG,
+  ERROR_SETUP_CONFIG_MISSING,
+  ERROR_SETUP_CONFIG_INVALID,
+  ERROR_SETUP_CONFIG_UNPARSEABLE,
+  ERROR_SETUP_PROMPT_MISSING,
 };
