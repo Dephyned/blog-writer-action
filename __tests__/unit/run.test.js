@@ -6,6 +6,7 @@ const { runSetup } = require('../../src/setup');
 const { refreshBrief } = require('../../src/brief');
 const { runClaude } = require('../../src/claude');
 const { commitAndPush } = require('../../src/commit');
+const { installDependencies } = require('../../src/dependencies');
 const { run } = require('../../src/run');
 
 jest.mock('@actions/core', () => ({
@@ -29,6 +30,7 @@ jest.mock('../../src/prompt', () => ({ buildPrompt: jest.fn(() => 'the prompt') 
 jest.mock('../../src/validate', () => ({ runValidation: jest.fn() }));
 jest.mock('../../src/build', () => ({ runBuild: jest.fn() }));
 jest.mock('../../src/commit', () => ({ commitAndPush: jest.fn(async () => true) }));
+jest.mock('../../src/dependencies', () => ({ installDependencies: jest.fn(async () => 'skipped') }));
 
 const BRIEF_CONFIG = { path: '.blog/product-brief.md', maxAgeDays: 30, model: 'claude-haiku-4-5-20251001', maxTurns: 30 };
 const SERVICE_CONFIG = {
@@ -54,7 +56,7 @@ describe('Feature: Running the action', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     callOrder.length = 0;
-    Object.assign(inputs, { 'anthropic-api-key': 'sk-ant-x', mode: 'auto', 'install-dependencies': 'false' });
+    Object.assign(inputs, { 'anthropic-api-key': 'sk-ant-x', mode: 'auto', 'install-dependencies': '' });
     core.getInput.mockImplementation((name) => inputs[name] || '');
     exec.exec.mockResolvedValue(0);
     runSetup.mockImplementation(track('setup', async () => 'completed'));
@@ -144,6 +146,29 @@ describe('Feature: Running the action', () => {
       // Then
       expect(core.setFailed).toHaveBeenCalledWith(expect.stringContaining('product brief'));
       expect(runClaude).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Scenario: Installing dependencies', () => {
+    it('Given install-dependencies is not turned off, When a post is generated, Then dependencies are installed after the config is read so the install can depend on it', async () => {
+      // Given
+      resolveMode.mockReturnValue('generate');
+      readConfig.mockReturnValue(SERVICE_CONFIG);
+
+      // When
+      await run();
+
+      // Then
+      expect(installDependencies).toHaveBeenCalledWith({ repoRoot: process.cwd(), config: SERVICE_CONFIG });
+      expect(exec.exec).not.toHaveBeenCalledWith('npm', ['ci']);
+    });
+
+    it('Given install-dependencies is false, When a post is generated, Then nothing is installed', async () => {
+      inputs['install-dependencies'] = 'false';
+      resolveMode.mockReturnValue('generate');
+      readConfig.mockReturnValue(SERVICE_CONFIG);
+      await run();
+      expect(installDependencies).not.toHaveBeenCalled();
     });
   });
 });

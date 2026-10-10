@@ -31,6 +31,18 @@ const ERROR_POST_COUNT_COMMAND_FAILED = 'Post count command failed, defaulting t
 // Claude Code CLI
 const CLAUDE_CLI_PACKAGE = '@anthropic-ai/claude-code';
 
+// Dependency install: the first lockfile found picks the package manager
+const PACKAGE_JSON = 'package.json';
+const DEPENDENCY_INSTALLERS = [
+  { lockfile: 'package-lock.json', commands: [['npm', ['ci']]] },
+  { lockfile: 'npm-shrinkwrap.json', commands: [['npm', ['ci']]] },
+  { lockfile: 'pnpm-lock.yaml', commands: [['corepack', ['enable']], ['pnpm', ['install', '--frozen-lockfile']]] },
+  { lockfile: 'yarn.lock', commands: [['corepack', ['enable']], ['yarn', ['install']]] },
+];
+const DEPENDENCY_INSTALL_NO_LOCKFILE = [['npm', ['install', '--no-audit', '--no-fund']]];
+const DEPENDENCIES_SKIPPED = 'skipped';
+const DEPENDENCIES_INSTALLED = 'installed';
+
 // Action modes
 const MODE_GENERATE = 'generate';
 const MODE_SETUP = 'setup';
@@ -96,6 +108,11 @@ const BRIEF_EXCLUDED_PATTERNS = [
 ];
 
 module.exports = {
+  PACKAGE_JSON,
+  DEPENDENCY_INSTALLERS,
+  DEPENDENCY_INSTALL_NO_LOCKFILE,
+  DEPENDENCIES_SKIPPED,
+  DEPENDENCIES_INSTALLED,
   DEFAULT_CONFIG_PATH,
   DEFAULT_PROMPT_TEMPLATE_PATH,
   DEFAULT_ALLOWED_TOOLS,

@@ -26137,6 +26137,18 @@ const ERROR_POST_COUNT_COMMAND_FAILED = 'Post count command failed, defaulting t
 // Claude Code CLI
 const CLAUDE_CLI_PACKAGE = '@anthropic-ai/claude-code';
 
+// Dependency install: the first lockfile found picks the package manager
+const PACKAGE_JSON = 'package.json';
+const DEPENDENCY_INSTALLERS = [
+  { lockfile: 'package-lock.json', commands: [['npm', ['ci']]] },
+  { lockfile: 'npm-shrinkwrap.json', commands: [['npm', ['ci']]] },
+  { lockfile: 'pnpm-lock.yaml', commands: [['corepack', ['enable']], ['pnpm', ['install', '--frozen-lockfile']]] },
+  { lockfile: 'yarn.lock', commands: [['corepack', ['enable']], ['yarn', ['install']]] },
+];
+const DEPENDENCY_INSTALL_NO_LOCKFILE = [['npm', ['install', '--no-audit', '--no-fund']]];
+const DEPENDENCIES_SKIPPED = 'skipped';
+const DEPENDENCIES_INSTALLED = 'installed';
+
 // Action modes
 const MODE_GENERATE = 'generate';
 const MODE_SETUP = 'setup';
@@ -26202,6 +26214,11 @@ const BRIEF_EXCLUDED_PATTERNS = [
 ];
 
 module.exports = {
+  PACKAGE_JSON,
+  DEPENDENCY_INSTALLERS,
+  DEPENDENCY_INSTALL_NO_LOCKFILE,
+  DEPENDENCIES_SKIPPED,
+  DEPENDENCIES_INSTALLED,
   DEFAULT_CONFIG_PATH,
   DEFAULT_PROMPT_TEMPLATE_PATH,
   DEFAULT_ALLOWED_TOOLS,
@@ -26336,6 +26353,56 @@ Add the new post to the project's blog data file, following the existing format 
 `;
 
 module.exports = { DEFAULT_PROMPT_TEMPLATE };
+
+
+/***/ }),
+
+/***/ 1596:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+const fs = __nccwpck_require__(9896);
+const path = __nccwpck_require__(6928);
+const core = __nccwpck_require__(7484);
+const exec = __nccwpck_require__(5236);
+const {
+  PACKAGE_JSON,
+  DEPENDENCY_INSTALLERS,
+  DEPENDENCY_INSTALL_NO_LOCKFILE,
+  DEPENDENCIES_SKIPPED,
+  DEPENDENCIES_INSTALLED,
+} = __nccwpck_require__(9992);
+
+/**
+ * Installs the repo's packages, but only when a build or validation command will
+ * use them. The package manager is picked from the lockfile at the repo root.
+ * @param {object} options
+ * @param {string} options.repoRoot - Repo root directory
+ * @param {object} options.config - Parsed blog config
+ * @returns {Promise<string>} "installed" or "skipped"
+ */
+async function installDependencies({ repoRoot, config }) {
+  if (!config.buildCommand && !config.validationCommand) {
+    core.info('No build or validation command, skipping dependency install.');
+    return DEPENDENCIES_SKIPPED;
+  }
+
+  const exists = (file) => fs.existsSync(path.join(repoRoot, file));
+  if (!exists(PACKAGE_JSON)) {
+    core.info('No package.json at the repo root, skipping dependency install.');
+    return DEPENDENCIES_SKIPPED;
+  }
+
+  const installer = DEPENDENCY_INSTALLERS.find(({ lockfile }) => exists(lockfile));
+  const commands = installer ? installer.commands : DEPENDENCY_INSTALL_NO_LOCKFILE;
+
+  core.info('Installing project dependencies...');
+  for (const [command, args] of commands) {
+    await exec.exec(command, args, { cwd: repoRoot });
+  }
+  return DEPENDENCIES_INSTALLED;
+}
+
+module.exports = { installDependencies };
 
 
 /***/ }),
@@ -26511,7 +26578,6 @@ module.exports = { buildPrompt };
 /***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
 
 const core = __nccwpck_require__(7484);
-const exec = __nccwpck_require__(5236);
 const { readConfig } = __nccwpck_require__(1283);
 const { resolveParameters } = __nccwpck_require__(1125);
 const { buildPrompt } = __nccwpck_require__(3479);
@@ -26522,6 +26588,7 @@ const { commitAndPush } = __nccwpck_require__(620);
 const { resolveMode } = __nccwpck_require__(3394);
 const { runSetup } = __nccwpck_require__(3292);
 const { refreshBrief } = __nccwpck_require__(3509);
+const { installDependencies } = __nccwpck_require__(1596);
 const { DEFAULT_CONFIG_PATH, DEFAULT_COMMIT_PUSH_BRANCH, MODE_SETUP, MODE_AUTO } = __nccwpck_require__(9992);
 
 /**
@@ -26540,7 +26607,7 @@ async function run() {
     const locationOverride = core.getInput('location') || '';
     const autoCommit = core.getInput('auto-commit') !== 'false';
     const commitPushBranch = core.getInput('commit-push-branch') || DEFAULT_COMMIT_PUSH_BRANCH;
-    const installDependencies = core.getInput('install-dependencies') !== 'false';
+    const installDependenciesEnabled = core.getInput('install-dependencies') !== 'false';
     const modeInput = core.getInput('mode');
     const mode = resolveMode(modeInput, configPath);
     core.setOutput('mode', mode);
@@ -26555,15 +26622,14 @@ async function run() {
       if (modeInput !== MODE_AUTO) return;
     }
 
-    // 2. Install project dependencies (if enabled)
-    if (installDependencies) {
-      core.info('Installing project dependencies...');
-      await exec.exec('npm', ['ci']);
-    }
-
-    // 3. Read blog config
+    // 2. Read blog config
     core.info('Reading config from: ' + configPath);
     const config = readConfig(configPath);
+
+    // 3. Install project dependencies (only when a build or validation command needs them)
+    if (installDependenciesEnabled) {
+      await installDependencies({ repoRoot: process.cwd(), config });
+    }
 
     // 3b. Keep the product brief current (software products only)
     if (config.productBrief) {

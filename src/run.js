@@ -1,5 +1,4 @@
 const core = require('@actions/core');
-const exec = require('@actions/exec');
 const { readConfig } = require('./config');
 const { resolveParameters } = require('./parameters');
 const { buildPrompt } = require('./prompt');
@@ -10,6 +9,7 @@ const { commitAndPush } = require('./commit');
 const { resolveMode } = require('./mode');
 const { runSetup } = require('./setup');
 const { refreshBrief } = require('./brief');
+const { installDependencies } = require('./dependencies');
 const { DEFAULT_CONFIG_PATH, DEFAULT_COMMIT_PUSH_BRANCH, MODE_SETUP, MODE_AUTO } = require('./constants');
 
 /**
@@ -28,7 +28,7 @@ async function run() {
     const locationOverride = core.getInput('location') || '';
     const autoCommit = core.getInput('auto-commit') !== 'false';
     const commitPushBranch = core.getInput('commit-push-branch') || DEFAULT_COMMIT_PUSH_BRANCH;
-    const installDependencies = core.getInput('install-dependencies') !== 'false';
+    const installDependenciesEnabled = core.getInput('install-dependencies') !== 'false';
     const modeInput = core.getInput('mode');
     const mode = resolveMode(modeInput, configPath);
     core.setOutput('mode', mode);
@@ -43,15 +43,14 @@ async function run() {
       if (modeInput !== MODE_AUTO) return;
     }
 
-    // 2. Install project dependencies (if enabled)
-    if (installDependencies) {
-      core.info('Installing project dependencies...');
-      await exec.exec('npm', ['ci']);
-    }
-
-    // 3. Read blog config
+    // 2. Read blog config
     core.info('Reading config from: ' + configPath);
     const config = readConfig(configPath);
+
+    // 3. Install project dependencies (only when a build or validation command needs them)
+    if (installDependenciesEnabled) {
+      await installDependencies({ repoRoot: process.cwd(), config });
+    }
 
     // 3b. Keep the product brief current (software products only)
     if (config.productBrief) {

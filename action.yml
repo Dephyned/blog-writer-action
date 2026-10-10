@@ -35,7 +35,7 @@ inputs:
     required: false
     default: 'generate'
   install-dependencies:
-    description: 'Run npm ci before blog generation'
+    description: 'Install the repo packages before building (uses the lockfile to pick npm, yarn or pnpm; skipped when there is no build or validation command)'
     required: false
     default: 'true'
 
