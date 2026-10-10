@@ -108,4 +108,49 @@ describe('Feature: Config Loading', () => {
       expect(config.claude.maxTurns).toBe(30);
     });
   });
+
+  describe('Scenario: Product brief settings', () => {
+    it('Given a config with an empty productBrief block, When readConfig is called, Then the brief defaults to a monthly Haiku scan', () => {
+      // Given
+      fs.existsSync.mockReturnValue(true);
+      fs.readFileSync.mockReturnValue(JSON.stringify({ productBrief: {} }));
+
+      // When
+      const config = readConfig('blog.config.json');
+
+      // Then
+      expect(config.productBrief).toEqual({
+        path: '.blog/product-brief.md',
+        maxAgeDays: 30,
+        model: 'claude-haiku-4-5-20251001',
+        maxTurns: 30,
+      });
+    });
+
+    it('Given a config with custom productBrief values, When readConfig is called, Then they override the defaults', () => {
+      // Given
+      fs.existsSync.mockReturnValue(true);
+      fs.readFileSync.mockReturnValue(JSON.stringify({ productBrief: { path: 'docs/brief.md', maxAgeDays: 7 } }));
+
+      // When
+      const config = readConfig('blog.config.json');
+
+      // Then
+      expect(config.productBrief.path).toBe('docs/brief.md');
+      expect(config.productBrief.maxAgeDays).toBe(7);
+      expect(config.productBrief.model).toBe('claude-haiku-4-5-20251001');
+    });
+
+    it('Given a config without productBrief, When readConfig is called, Then no brief is configured', () => {
+      fs.existsSync.mockReturnValue(true);
+      fs.readFileSync.mockReturnValue(JSON.stringify({}));
+      expect(readConfig('blog.config.json').productBrief).toBeNull();
+    });
+
+    it('Given a config with a claude model, When readConfig is called, Then the model is kept', () => {
+      fs.existsSync.mockReturnValue(true);
+      fs.readFileSync.mockReturnValue(JSON.stringify({ claude: { model: 'claude-sonnet-5' } }));
+      expect(readConfig('blog.config.json').claude.model).toBe('claude-sonnet-5');
+    });
+  });
 });

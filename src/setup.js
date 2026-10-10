@@ -1,22 +1,19 @@
 const fs = require('fs');
 const path = require('path');
 const core = require('@actions/core');
-const exec = require('@actions/exec');
 const { installClaudeCli, runClaude } = require('./claude');
+const { commitFiles } = require('./commit');
 const { DEFAULT_PROMPT_TEMPLATE } = require('./default-prompt');
 const { SETUP_PROMPT_TEMPLATE } = require('./setup-prompt-template');
 const {
   DEFAULT_PROMPT_TEMPLATE_PATH,
-  GIT_USER_NAME,
-  GIT_USER_EMAIL,
-  CO_AUTHOR,
-  ERROR_COMMIT_FAILED,
   SETUP_ALLOWED_TOOLS,
   SETUP_MAX_TURNS,
   SETUP_RESULT_PATH,
   SETUP_STATUS_NO_BLOG,
   SETUP_COMMIT_MESSAGE,
   SETUP_REQUIRED_CONFIG_FIELDS,
+  SETUP_PRODUCT_REQUIRED_CONFIG_FIELDS,
   SETUP_RESULT_SKIPPED,
   SETUP_RESULT_COMPLETED,
   PLACEHOLDER_CONFIG_PATH,
@@ -85,7 +82,9 @@ function validateSetupOutput(repoRoot, configPath) {
     throw new Error(ERROR_SETUP_CONFIG_UNPARSEABLE + err.message);
   }
 
-  const missingFields = SETUP_REQUIRED_CONFIG_FIELDS.filter((field) => isMissing(config[field]));
+  // Software products rotate through brief article ideas instead of topics and cities
+  const requiredFields = config.productBrief ? SETUP_PRODUCT_REQUIRED_CONFIG_FIELDS : SETUP_REQUIRED_CONFIG_FIELDS;
+  const missingFields = requiredFields.filter((field) => isMissing(config[field]));
   if (missingFields.length > 0) {
     throw new Error(ERROR_SETUP_CONFIG_INVALID + missingFields.join(', '));
   }
@@ -96,28 +95,6 @@ function validateSetupOutput(repoRoot, configPath) {
   }
 
   return promptTemplatePath;
-}
-
-/**
- * Commits the setup files and pushes them to the given branch.
- * @param {string} repoRoot - Repo root directory
- * @param {string[]} files - Repo-relative files to commit
- * @param {string} branch - Branch to push to
- */
-async function commitSetup(repoRoot, files, branch) {
-  const options = { cwd: repoRoot };
-  try {
-    await exec.exec('git', ['config', 'user.name', GIT_USER_NAME], options);
-    await exec.exec('git', ['config', 'user.email', GIT_USER_EMAIL], options);
-    for (const file of files) {
-      await exec.exec('git', ['add', file], options);
-    }
-    await exec.exec('git', ['commit', '-m', `${SETUP_COMMIT_MESSAGE}\n\n${CO_AUTHOR}`], options);
-    await exec.exec('git', ['pull', '--rebase', 'origin', branch], options);
-    await exec.exec('git', ['push', 'origin', branch], options);
-  } catch (err) {
-    throw new Error(ERROR_COMMIT_FAILED + ': ' + err.message);
-  }
 }
 
 /**
@@ -148,7 +125,7 @@ async function runSetup({ repoRoot, configPath, branch }) {
   const promptTemplatePath = validateSetupOutput(repoRoot, configPath);
 
   core.info('Committing setup files...');
-  await commitSetup(repoRoot, [configPath, promptTemplatePath], branch);
+  await commitFiles({ repoRoot, files: [configPath, promptTemplatePath], message: SETUP_COMMIT_MESSAGE, branch });
 
   core.info('Blog writer setup complete!');
   return SETUP_RESULT_COMPLETED;

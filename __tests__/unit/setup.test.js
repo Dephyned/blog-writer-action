@@ -216,4 +216,52 @@ describe('Feature: Setup mode', () => {
       expect(gitCalls()).toHaveLength(0);
     });
   });
+
+  describe('Scenario: Software product repo', () => {
+    const PRODUCT_CONFIG = {
+      promptTemplatePath: PROMPT_PATH,
+      productBrief: {},
+      postCountCommand: 'ls content/blog/*.md | wc -l',
+      filesToCommit: ['content/blog'],
+    };
+
+    it('Given Claude writes a product config with a brief and no cities or topic schedule, When setup checks it, Then it is accepted', async () => {
+      // Given
+      claudeWrites(repoRoot, {
+        [CONFIG_PATH]: JSON.stringify(PRODUCT_CONFIG),
+        [PROMPT_PATH]: '# Read {{PRODUCT_BRIEF_PATH}}',
+      });
+
+      // When / Then
+      await expect(runSetup({ repoRoot, configPath: CONFIG_PATH, branch: 'main' })).resolves.toBe('completed');
+    });
+
+    it('Given a product config missing filesToCommit, When setup checks it, Then it fails naming the field', async () => {
+      // Given
+      const { filesToCommit, ...incomplete } = PRODUCT_CONFIG;
+      claudeWrites(repoRoot, {
+        [CONFIG_PATH]: JSON.stringify(incomplete),
+        [PROMPT_PATH]: '# prompt',
+      });
+
+      // When / Then
+      await expect(runSetup({ repoRoot, configPath: CONFIG_PATH, branch: 'main' })).rejects.toThrow('filesToCommit');
+    });
+
+    it('Given the setup prompt, When it is sent to Claude, Then it explains both local service and software product repos', async () => {
+      // Given
+      claudeWrites(repoRoot, {
+        [CONFIG_PATH]: JSON.stringify(PRODUCT_CONFIG),
+        [PROMPT_PATH]: '# prompt',
+      });
+
+      // When
+      await runSetup({ repoRoot, configPath: CONFIG_PATH, branch: 'main' });
+
+      // Then
+      const prompt = runClaude.mock.calls[0][0];
+      expect(prompt).toContain('productBrief');
+      expect(prompt).toContain('{{PRODUCT_BRIEF_PATH}}');
+    });
+  });
 });

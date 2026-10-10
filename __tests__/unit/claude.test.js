@@ -81,4 +81,29 @@ describe('Feature: Claude Code CLI Integration', () => {
       ).rejects.toThrow('Claude Code CLI exited with a non-zero status');
     });
   });
+
+  describe('Scenario: Run Claude with a specific model', () => {
+    it('Given a claude config with a model, When runClaude is called, Then it passes --model to the CLI', async () => {
+      // Given
+      exec.exec.mockResolvedValue(0);
+
+      // When
+      await runClaude('prompt', { allowedTools: 'Read', maxTurns: 10, model: 'claude-haiku-4-5-20251001' });
+
+      // Then
+      const args = exec.exec.mock.calls[0][1];
+      expect(args).toEqual(expect.arrayContaining(['--model', 'claude-haiku-4-5-20251001']));
+    });
+
+    it('Given a claude config without a model, When runClaude is called, Then no --model flag is passed', async () => {
+      // Given
+      exec.exec.mockResolvedValue(0);
+
+      // When
+      await runClaude('prompt', { allowedTools: 'Read', maxTurns: 10 });
+
+      // Then
+      expect(exec.exec.mock.calls[0][1]).not.toContain('--model');
+    });
+  });
 });

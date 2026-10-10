@@ -21,7 +21,7 @@ async function installClaudeCli() {
 /**
  * Runs the Claude Code CLI with the given prompt and configuration.
  * @param {string} prompt - The full prompt to send to Claude
- * @param {object} claudeConfig - Config with allowedTools and maxTurns
+ * @param {object} claudeConfig - Config with allowedTools, maxTurns and an optional model
  */
 async function runClaude(prompt, claudeConfig) {
   const args = [
@@ -32,6 +32,10 @@ async function runClaude(prompt, claudeConfig) {
     '--max-turns',
     String(claudeConfig.maxTurns),
   ];
+
+  if (claudeConfig.model) {
+    args.push('--model', claudeConfig.model);
+  }
 
   try {
     await exec.exec('claude', args, {

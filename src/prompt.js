@@ -1,6 +1,7 @@
 const fs = require('fs');
 const core = require('@actions/core');
 const { DEFAULT_PROMPT_TEMPLATE } = require('./default-prompt');
+const { PLACEHOLDER_PRODUCT_BRIEF_PATH } = require('./constants');
 
 /**
  * Builds the final prompt string by loading a template and substituting placeholders.
@@ -26,6 +27,10 @@ function buildPrompt({ config, topic, location, date }) {
     .replace(/\{\{TOPIC\}\}/g, topic)
     .replace(/\{\{LOCATION\}\}/g, location)
     .replace(/\{\{DATE\}\}/g, date);
+
+  if (config.productBrief) {
+    prompt = prompt.split(PLACEHOLDER_PRODUCT_BRIEF_PATH).join(config.productBrief.path);
+  }
 
   // Substitute custom placeholders from config
   const placeholders = config.placeholders || {};

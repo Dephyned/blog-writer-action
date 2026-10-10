@@ -31,7 +31,7 @@ inputs:
     required: false
     default: 'main'
   mode:
-    description: 'generate (default) writes a post, setup has Claude write blog.config.json and the prompt for this repo, auto runs setup when there is no config yet and generate otherwise'
+    description: 'generate (default) writes a post, setup has Claude write blog.config.json and the prompt for this repo, auto runs setup and then writes the first post when there is no config yet, and generate otherwise'
     required: false
     default: 'generate'
   install-dependencies:
@@ -44,6 +44,8 @@ outputs:
     description: 'The mode that ran (generate or setup)'
   setup-result:
     description: 'In setup mode, completed or skipped'
+  brief-result:
+    description: 'For software products, whether the product brief was fresh, unchanged or refreshed'
   topic:
     description: 'The topic used for the blog post'
   location:

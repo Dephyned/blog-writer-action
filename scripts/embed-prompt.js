@@ -11,6 +11,7 @@ const path = require('path');
 const PROMPTS = [
   { source: 'default-blog-post.md', output: 'default-prompt.js', exportName: 'DEFAULT_PROMPT_TEMPLATE' },
   { source: 'setup.md', output: 'setup-prompt-template.js', exportName: 'SETUP_PROMPT_TEMPLATE' },
+  { source: 'brief.md', output: 'brief-prompt-template.js', exportName: 'BRIEF_PROMPT_TEMPLATE' },
 ];
 
 for (const { source, output, exportName } of PROMPTS) {

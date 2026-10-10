@@ -57,6 +57,43 @@ const ERROR_SETUP_CONFIG_MISSING = 'Setup failed, Claude did not write a config 
 const ERROR_SETUP_CONFIG_INVALID = 'Setup failed, config is missing required fields: ';
 const ERROR_SETUP_CONFIG_UNPARSEABLE = 'Setup failed, config is not valid JSON: ';
 const ERROR_SETUP_PROMPT_MISSING = 'Setup failed, Claude did not write a prompt template at: ';
+const SETUP_PRODUCT_REQUIRED_CONFIG_FIELDS = ['postCountCommand', 'filesToCommit'];
+
+// Product brief: a summary of what a software product actually does, written by a
+// cheap model from the repo's code and refreshed monthly, so posts describe the
+// real app instead of generic advice.
+const DEFAULT_BRIEF_PATH = '.blog/product-brief.md';
+const BRIEF_STATE_SUFFIX = '.state.json';
+const DEFAULT_BRIEF_MAX_AGE_DAYS = 30;
+const DEFAULT_BRIEF_MODEL = 'claude-haiku-4-5-20251001';
+const DEFAULT_BRIEF_MAX_TURNS = 30;
+const BRIEF_ALLOWED_TOOLS = 'Read,Write,Edit,Glob,Grep';
+const BRIEF_MAX_LISTED_FILES = 2000;
+const BRIEF_COMMIT_MESSAGE = 'docs(blog): refresh product brief';
+const BRIEF_RESULT_FRESH = 'fresh';
+const BRIEF_RESULT_REFRESHED = 'refreshed';
+const BRIEF_RESULT_UNCHANGED = 'unchanged';
+const DAY_MS = 24 * 60 * 60 * 1000;
+const PLACEHOLDER_PRODUCT_BRIEF_PATH = '{{PRODUCT_BRIEF_PATH}}';
+const PLACEHOLDER_FILE_LIST = '{{FILE_LIST}}';
+const PLACEHOLDER_BRIEF_TASK = '{{BRIEF_TASK}}';
+const ERROR_BRIEF_NOT_WRITTEN = 'Claude did not write the product brief at: ';
+const BRIEF_TASK_CREATE = 'There is no brief yet. Write it from scratch using the files listed below.';
+const BRIEF_TASK_UPDATE = 'A brief already exists. Read it first, then update only what changed. The files listed below are the only source files that changed since it was written; read the ones that affect features and leave the rest of the brief as it is.';
+const BRIEF_FILE_LIST_TRUNCATED = 'The list above is cut off. Use Glob to find other files only if a feature you need is missing from it.';
+
+// Files that never explain what a product does: tests, dependencies, build
+// output, lock files, media, editor and CI config.
+const BRIEF_EXCLUDED_PATTERNS = [
+  /(^|\/)(node_modules|vendor|dist|build|out|coverage|\.next|\.nuxt|\.turbo|\.cache|tmp)\//,
+  /(^|\/)(__tests__|__mocks__|__snapshots__|tests?|spec|specs|e2e|cypress|fixtures|mocks)\//,
+  /(^|\/)\.(github|husky|vscode|idea|git|claude)\//,
+  /\.(test|spec|stories)\.[cm]?[jt]sx?$/,
+  /(^|\/)(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|Gemfile\.lock|poetry\.lock|Cargo\.lock|composer\.lock|Podfile\.lock)$/,
+  /\.(png|jpe?g|gif|svg|ico|webp|avif|bmp|tiff?|mp4|mov|webm|mp3|wav|ogg|woff2?|ttf|eot|otf|pdf|zip|gz|tgz|jar|exe|dll|so|dylib)$/i,
+  /\.(min\.js|min\.css|map|snap|lcov|log)$/,
+  /(^|\/)\.blog\//,
+];
 
 module.exports = {
   DEFAULT_CONFIG_PATH,
@@ -104,4 +141,25 @@ module.exports = {
   ERROR_SETUP_CONFIG_INVALID,
   ERROR_SETUP_CONFIG_UNPARSEABLE,
   ERROR_SETUP_PROMPT_MISSING,
+  SETUP_PRODUCT_REQUIRED_CONFIG_FIELDS,
+  DEFAULT_BRIEF_PATH,
+  BRIEF_STATE_SUFFIX,
+  DEFAULT_BRIEF_MAX_AGE_DAYS,
+  DEFAULT_BRIEF_MODEL,
+  DEFAULT_BRIEF_MAX_TURNS,
+  BRIEF_ALLOWED_TOOLS,
+  BRIEF_MAX_LISTED_FILES,
+  BRIEF_COMMIT_MESSAGE,
+  BRIEF_RESULT_FRESH,
+  BRIEF_RESULT_REFRESHED,
+  BRIEF_RESULT_UNCHANGED,
+  DAY_MS,
+  PLACEHOLDER_PRODUCT_BRIEF_PATH,
+  PLACEHOLDER_FILE_LIST,
+  PLACEHOLDER_BRIEF_TASK,
+  ERROR_BRIEF_NOT_WRITTEN,
+  BRIEF_TASK_CREATE,
+  BRIEF_TASK_UPDATE,
+  BRIEF_FILE_LIST_TRUNCATED,
+  BRIEF_EXCLUDED_PATTERNS,
 };

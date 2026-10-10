@@ -144,4 +144,23 @@ describe('Feature: Prompt Building', () => {
       expect(prompt).toContain('{{UNKNOWN}}');
     });
   });
+
+  describe('Scenario: Product brief path', () => {
+    it('Given a template referencing the product brief and a config with a brief, When buildPrompt is called, Then the brief path is filled in', () => {
+      // Given
+      fs.existsSync.mockReturnValue(true);
+      fs.readFileSync.mockReturnValue('Read {{PRODUCT_BRIEF_PATH}} first.');
+      const config = {
+        promptTemplatePath: 'p.md',
+        placeholders: {},
+        productBrief: { path: '.blog/product-brief.md' },
+      };
+
+      // When
+      const prompt = buildPrompt({ config, topic: 'general', location: '', date: '2026-10-10' });
+
+      // Then
+      expect(prompt).toBe('Read .blog/product-brief.md first.');
+    });
+  });
 });

@@ -61,4 +61,28 @@ async function commitAndPush({ filesToCommit, commitMessage, topic, location, da
   }
 }
 
-module.exports = { commitAndPush };
+/**
+ * Commits the given files with a fixed message and pushes them.
+ * @param {object} options
+ * @param {string} options.repoRoot - Repo root directory
+ * @param {string[]} options.files - Repo-relative files to commit
+ * @param {string} options.message - Commit subject
+ * @param {string} options.branch - Branch to push to
+ */
+async function commitFiles({ repoRoot, files, message, branch }) {
+  const options = { cwd: repoRoot };
+  try {
+    await exec.exec('git', ['config', 'user.name', GIT_USER_NAME], options);
+    await exec.exec('git', ['config', 'user.email', GIT_USER_EMAIL], options);
+    for (const file of files) {
+      await exec.exec('git', ['add', file], options);
+    }
+    await exec.exec('git', ['commit', '-m', `${message}\n\n${CO_AUTHOR}`], options);
+    await exec.exec('git', ['pull', '--rebase', 'origin', branch], options);
+    await exec.exec('git', ['push', 'origin', branch], options);
+  } catch (err) {
+    throw new Error(ERROR_COMMIT_FAILED + ': ' + err.message);
+  }
+}
+
+module.exports = { commitAndPush, commitFiles };
