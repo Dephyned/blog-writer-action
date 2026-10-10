@@ -36,9 +36,15 @@ const PACKAGE_JSON = 'package.json';
 const DEPENDENCY_INSTALLERS = [
   { lockfile: 'package-lock.json', commands: [['npm', ['ci']]] },
   { lockfile: 'npm-shrinkwrap.json', commands: [['npm', ['ci']]] },
-  { lockfile: 'pnpm-lock.yaml', commands: [['corepack', ['enable']], ['pnpm', ['install', '--frozen-lockfile']]] },
   { lockfile: 'yarn.lock', commands: [['corepack', ['enable']], ['yarn', ['install']]] },
 ];
+// pnpm: without a pinned "packageManager", corepack would fetch the newest pnpm,
+// which may not read the repo's settings. Use the major that wrote the lockfile.
+const PNPM_LOCKFILE = 'pnpm-lock.yaml';
+const PNPM_INSTALL = ['pnpm', ['install', '--frozen-lockfile']];
+const PNPM_MAJOR_BY_LOCKFILE_VERSION = { '9.0': '10', '6.0': '8', '5.4': '7' };
+const PNPM_DEFAULT_MAJOR = '10';
+const COREPACK_ENABLE = ['corepack', ['enable']];
 const DEPENDENCY_INSTALL_NO_LOCKFILE = [['npm', ['install', '--no-audit', '--no-fund']]];
 const DEPENDENCIES_SKIPPED = 'skipped';
 const DEPENDENCIES_INSTALLED = 'installed';
@@ -111,6 +117,11 @@ module.exports = {
   PACKAGE_JSON,
   DEPENDENCY_INSTALLERS,
   DEPENDENCY_INSTALL_NO_LOCKFILE,
+  PNPM_LOCKFILE,
+  PNPM_INSTALL,
+  PNPM_MAJOR_BY_LOCKFILE_VERSION,
+  PNPM_DEFAULT_MAJOR,
+  COREPACK_ENABLE,
   DEPENDENCIES_SKIPPED,
   DEPENDENCIES_INSTALLED,
   DEFAULT_CONFIG_PATH,

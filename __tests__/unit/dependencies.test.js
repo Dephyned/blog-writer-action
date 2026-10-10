@@ -12,7 +12,7 @@ const BUILD_CONFIG = { buildCommand: 'npm run build', validationCommand: '' };
 describe('Feature: Installing project dependencies', () => {
   let repoRoot;
 
-  const write = (file) => fs.writeFileSync(path.join(repoRoot, file), '{}', 'utf8');
+  const write = (file, contents = '{}') => fs.writeFileSync(path.join(repoRoot, file), contents, 'utf8');
   const commands = () => exec.exec.mock.calls.map(([cmd, args]) => [cmd, ...args].join(' '));
 
   beforeEach(() => {
@@ -68,9 +68,30 @@ describe('Feature: Installing project dependencies', () => {
       expect(commands()).toEqual(['corepack enable', 'yarn install']);
     });
 
-    it('Given a pnpm-lock.yaml, When dependencies are installed, Then pnpm is enabled through corepack and installs from the lockfile', async () => {
+    it('Given a pnpm-lock.yaml with lockfile format 9.0 and no pinned version, When dependencies are installed, Then pnpm 10 is installed and used', async () => {
       write('package.json');
-      write('pnpm-lock.yaml');
+      write('pnpm-lock.yaml', "lockfileVersion: '9.0'\n\nsettings:\n");
+      await installDependencies({ repoRoot, config: BUILD_CONFIG });
+      expect(commands()).toEqual(['npm install -g pnpm@10', 'pnpm install --frozen-lockfile']);
+    });
+
+    it('Given a pnpm-lock.yaml with lockfile format 6.0, When dependencies are installed, Then pnpm 8 is used', async () => {
+      write('package.json');
+      write('pnpm-lock.yaml', "lockfileVersion: '6.0'\n");
+      await installDependencies({ repoRoot, config: BUILD_CONFIG });
+      expect(commands()).toEqual(['npm install -g pnpm@8', 'pnpm install --frozen-lockfile']);
+    });
+
+    it('Given a pnpm-lock.yaml with an unknown format, When dependencies are installed, Then pnpm 10 is used', async () => {
+      write('package.json');
+      write('pnpm-lock.yaml', 'something: else\n');
+      await installDependencies({ repoRoot, config: BUILD_CONFIG });
+      expect(commands()).toEqual(['npm install -g pnpm@10', 'pnpm install --frozen-lockfile']);
+    });
+
+    it('Given package.json pins pnpm in packageManager, When dependencies are installed, Then corepack uses that exact version', async () => {
+      write('package.json', JSON.stringify({ packageManager: 'pnpm@9.12.0' }));
+      write('pnpm-lock.yaml', "lockfileVersion: '9.0'\n");
       await installDependencies({ repoRoot, config: BUILD_CONFIG });
       expect(commands()).toEqual(['corepack enable', 'pnpm install --frozen-lockfile']);
     });
