@@ -153,4 +153,18 @@ describe('Feature: Config Loading', () => {
       expect(readConfig('blog.config.json').claude.model).toBe('claude-sonnet-5');
     });
   });
+
+  describe('Scenario: Target keywords', () => {
+    it('Given a config without keywords, When readConfig is called, Then keywords default to an empty list', () => {
+      fs.existsSync.mockReturnValue(true);
+      fs.readFileSync.mockReturnValue(JSON.stringify({}));
+      expect(readConfig('blog.config.json').keywords).toEqual([]);
+    });
+
+    it('Given keywords with blanks, extra spaces and duplicates, When readConfig is called, Then they are cleaned up in order', () => {
+      fs.existsSync.mockReturnValue(true);
+      fs.readFileSync.mockReturnValue(JSON.stringify({ keywords: [' commit to tweet ', '', 'Commit to Tweet', 'autopilot', 42] }));
+      expect(readConfig('blog.config.json').keywords).toEqual(['commit to tweet', 'autopilot']);
+    });
+  });
 });

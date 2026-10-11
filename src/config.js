@@ -26,6 +26,24 @@ function readProductBrief(productBrief) {
 }
 
 /**
+ * Trims keywords and drops blanks, non-strings and case-insensitive duplicates.
+ */
+function readKeywords(keywords) {
+  if (!Array.isArray(keywords)) return [];
+  const seen = new Set();
+  const cleaned = [];
+  for (const keyword of keywords) {
+    if (typeof keyword !== 'string') continue;
+    const trimmed = keyword.trim();
+    const key = trimmed.toLowerCase();
+    if (!trimmed || seen.has(key)) continue;
+    seen.add(key);
+    cleaned.push(trimmed);
+  }
+  return cleaned;
+}
+
+/**
  * Reads and parses the blog config file, applying defaults for missing fields.
  * @param {string} configPath - Path to the blog.config.json file
  * @returns {object} Parsed config with defaults applied
@@ -50,6 +68,7 @@ function readConfig(configPath) {
       ...(parsed.claude && parsed.claude.model ? { model: parsed.claude.model } : {}),
     },
     productBrief: readProductBrief(parsed.productBrief),
+    keywords: readKeywords(parsed.keywords),
     validationCommand: parsed.validationCommand || '',
     buildCommand: parsed.buildCommand || '',
     filesToCommit: parsed.filesToCommit || [],

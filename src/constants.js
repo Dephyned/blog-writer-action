@@ -79,6 +79,16 @@ const CLAUDE_LABEL_POST_FIX = 'post fix';
 const CLAUDE_OUTPUT_FORMAT = 'json';
 const COST_DECIMALS = 4;
 
+// Target keywords: an optional list in the config, used one per post in order
+const KEYWORDS_STATE_PATH = '.blog/keywords-used.json';
+const KEYWORD_PROMPT_SECTION = [
+  '',
+  '## Target Keyword',
+  '',
+  'Build this post around the search keyword "{{KEYWORD}}". Use it naturally in the title, the slug, the first paragraph, at least one H2 heading, and the meta description. Pick an angle that answers what someone searching for it wants to know. Every other instruction above still applies, including only stating facts you can support.',
+].join('\n');
+const PLACEHOLDER_KEYWORD = '{{KEYWORD}}';
+
 // Action modes
 const MODE_GENERATE = 'generate';
 const MODE_SETUP = 'setup';
@@ -144,6 +154,9 @@ const BRIEF_EXCLUDED_PATTERNS = [
 ];
 
 module.exports = {
+  KEYWORDS_STATE_PATH,
+  KEYWORD_PROMPT_SECTION,
+  PLACEHOLDER_KEYWORD,
   CLAUDE_LABEL_SETUP,
   CLAUDE_LABEL_BRIEF,
   CLAUDE_LABEL_POST,

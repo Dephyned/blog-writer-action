@@ -11,6 +11,7 @@ const {
  * Commits and pushes changes to the repository.
  * @param {object} options
  * @param {string[]} options.filesToCommit - Specific files to stage (empty = stage all)
+ * @param {string[]} [options.extraFiles] - Files committed only alongside a post (e.g. keyword state)
  * @param {string} options.commitMessage - Commit message template with {topic} and {location}
  * @param {string} options.topic - Resolved topic
  * @param {string} options.location - Resolved location
@@ -18,7 +19,7 @@ const {
  * @param {string} options.branch - Branch to push to
  * @returns {Promise<boolean>} True if changes were committed, false if no changes
  */
-async function commitAndPush({ filesToCommit, commitMessage, topic, location, date, branch }) {
+async function commitAndPush({ filesToCommit, extraFiles = [], commitMessage, topic, location, date, branch }) {
   try {
     // Configure git identity
     await exec.exec('git', ['config', 'user.name', GIT_USER_NAME]);
@@ -39,6 +40,10 @@ async function commitAndPush({ filesToCommit, commitMessage, topic, location, da
     if (!diffOutput.stdout.trim()) {
       core.info('No changes to commit.');
       return false;
+    }
+
+    for (const file of extraFiles) {
+      await exec.exec('git', ['add', file]);
     }
 
     // Build commit message from template

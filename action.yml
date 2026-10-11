@@ -44,6 +44,8 @@ outputs:
     description: 'The mode that ran (generate or setup)'
   setup-result:
     description: 'In setup mode, completed or skipped'
+  keyword:
+    description: 'The target keyword this post was built around, or empty if none was configured or all were used'
   cost-usd:
     description: 'What the Claude calls in this run cost in US dollars, as reported by Claude Code'
   build-check:

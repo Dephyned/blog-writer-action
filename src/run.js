@@ -11,6 +11,7 @@ const { runSetup } = require('./setup');
 const { refreshBrief } = require('./brief');
 const { installDependencies } = require('./dependencies');
 const { getCostSummary } = require('./cost');
+const { pickKeyword, markKeywordUsed, addKeywordToPrompt } = require('./keywords');
 const {
   DEFAULT_CONFIG_PATH,
   DEFAULT_COMMIT_PUSH_BRANCH,
@@ -81,7 +82,9 @@ async function run() {
 
     // 5. Build prompt
     core.info('Building prompt...');
-    const prompt = buildPrompt({ config, topic, location, date });
+    const keyword = pickKeyword({ repoRoot: process.cwd(), keywords: config.keywords });
+    if (keyword) core.info('Target keyword: ' + keyword);
+    const prompt = addKeywordToPrompt(buildPrompt({ config, topic, location, date }), keyword);
 
     // 6. Install and run Claude Code CLI
     core.info('Installing Claude Code CLI...');
@@ -102,12 +105,16 @@ async function run() {
     });
     core.setOutput('build-check', buildCheck);
 
+    // The keyword is only used up once the post has passed the build check
+    const extraFiles = keyword ? [markKeywordUsed({ repoRoot: process.cwd(), keyword, date })] : [];
+
     // 9. Commit and push (if auto-commit enabled)
     let committed = false;
     if (autoCommit) {
       core.info('Committing and pushing changes...');
       committed = await commitAndPush({
         filesToCommit: config.filesToCommit,
+        extraFiles,
         commitMessage: config.commitMessage,
         topic,
         location,
@@ -122,6 +129,7 @@ async function run() {
     core.setOutput('topic', topic);
     core.setOutput('location', location);
     core.setOutput('date', date);
+    core.setOutput('keyword', keyword || '');
     core.setOutput('committed', String(committed));
 
     // Generate slug and title from topic/location/date for outputs

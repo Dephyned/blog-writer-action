@@ -8,6 +8,7 @@ const { runClaude } = require('../../src/claude');
 const { commitAndPush } = require('../../src/commit');
 const { installDependencies } = require('../../src/dependencies');
 const { verifyPostBuild } = require('../../src/build-check');
+const { pickKeyword, markKeywordUsed } = require('../../src/keywords');
 const { recordCost, resetCosts } = require('../../src/cost');
 const { run } = require('../../src/run');
 
@@ -32,6 +33,11 @@ jest.mock('../../src/prompt', () => ({ buildPrompt: jest.fn(() => 'the prompt') 
 jest.mock('../../src/validate', () => ({ runValidation: jest.fn() }));
 jest.mock('../../src/build-check', () => ({ verifyPostBuild: jest.fn(async () => 'passed') }));
 jest.mock('../../src/commit', () => ({ commitAndPush: jest.fn(async () => true) }));
+jest.mock('../../src/keywords', () => ({
+  pickKeyword: jest.fn(() => null),
+  markKeywordUsed: jest.fn(() => '.blog/keywords-used.json'),
+  addKeywordToPrompt: jest.fn((prompt, keyword) => (keyword ? `${prompt} [keyword: ${keyword}]` : prompt)),
+}));
 jest.mock('../../src/dependencies', () => ({ installDependencies: jest.fn(async () => 'skipped') }));
 
 const BRIEF_CONFIG = { path: '.blog/product-brief.md', maxAgeDays: 30, model: 'claude-haiku-4-5-20251001', maxTurns: 30 };
@@ -66,6 +72,7 @@ describe('Feature: Running the action', () => {
     resetCosts();
     runClaude.mockImplementation(track('post'));
     commitAndPush.mockImplementation(track('commit', async () => true));
+    verifyPostBuild.mockResolvedValue('passed');
   });
 
   describe('Scenario: First run on a new repo', () => {
@@ -246,6 +253,51 @@ describe('Feature: Running the action', () => {
       expect(core.setFailed).toHaveBeenCalled();
       expect(core.info).toHaveBeenCalledWith('Total: $0.3000');
       expect(core.setOutput).toHaveBeenCalledWith('cost-usd', '0.3000');
+    });
+  });
+
+  describe('Scenario: Target keywords', () => {
+    const KEYWORD_CONFIG = { ...SERVICE_CONFIG, keywords: ['commit to tweet'] };
+
+    it('Given an unused keyword, When a post is generated, Then the post is written around it and the keyword is recorded with the post', async () => {
+      // Given
+      resolveMode.mockReturnValue('generate');
+      readConfig.mockReturnValue(KEYWORD_CONFIG);
+      pickKeyword.mockReturnValue('commit to tweet');
+
+      // When
+      await run();
+
+      // Then
+      expect(pickKeyword).toHaveBeenCalledWith({ repoRoot: process.cwd(), keywords: ['commit to tweet'] });
+      expect(runClaude).toHaveBeenCalledWith('the prompt [keyword: commit to tweet]', KEYWORD_CONFIG.claude, 'post');
+      expect(markKeywordUsed).toHaveBeenCalledWith({ repoRoot: process.cwd(), keyword: 'commit to tweet', date: '2026-10-10' });
+      expect(commitAndPush).toHaveBeenCalledWith(expect.objectContaining({ extraFiles: ['.blog/keywords-used.json'] }));
+      expect(core.setOutput).toHaveBeenCalledWith('keyword', 'commit to tweet');
+    });
+
+    it('Given no unused keyword, When a post is generated, Then the prompt is unchanged and nothing is recorded', async () => {
+      // Given
+      resolveMode.mockReturnValue('generate');
+      readConfig.mockReturnValue(KEYWORD_CONFIG);
+      pickKeyword.mockReturnValue(null);
+
+      // When
+      await run();
+
+      // Then
+      expect(runClaude).toHaveBeenCalledWith('the prompt', KEYWORD_CONFIG.claude, 'post');
+      expect(markKeywordUsed).not.toHaveBeenCalled();
+      expect(commitAndPush).toHaveBeenCalledWith(expect.objectContaining({ extraFiles: [] }));
+    });
+
+    it('Given the post broke the build, When the run fails, Then the keyword is not used up', async () => {
+      resolveMode.mockReturnValue('generate');
+      readConfig.mockReturnValue(KEYWORD_CONFIG);
+      pickKeyword.mockReturnValue('commit to tweet');
+      verifyPostBuild.mockRejectedValue(new Error('The new post broke the build'));
+      await run();
+      expect(markKeywordUsed).not.toHaveBeenCalled();
     });
   });
 });

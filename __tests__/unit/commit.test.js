@@ -145,4 +145,47 @@ describe('Feature: Git Commit and Push', () => {
       expect(exec.exec).toHaveBeenCalledWith('git', ['push', 'origin', 'main']);
     });
   });
+
+  describe('Scenario: Extra files that only go along with a post', () => {
+    it('Given a new post and an extra file, When commitAndPush is called, Then both are staged and committed', async () => {
+      // Given
+      exec.getExecOutput.mockResolvedValueOnce({ stdout: 'src/data/posts.ts', exitCode: 0 });
+
+      // When
+      const committed = await commitAndPush({
+        filesToCommit: ['src/data/posts.ts'],
+        extraFiles: ['.blog/keywords-used.json'],
+        commitMessage: 'feat(blog): add post',
+        topic: 'general',
+        location: '',
+        date: '2026-10-11',
+        branch: 'main',
+      });
+
+      // Then
+      expect(committed).toBe(true);
+      expect(exec.exec).toHaveBeenCalledWith('git', ['add', '.blog/keywords-used.json']);
+    });
+
+    it('Given no post was written, When commitAndPush is called with an extra file, Then the extra file is not committed on its own', async () => {
+      // Given
+      exec.getExecOutput.mockResolvedValueOnce({ stdout: '', exitCode: 0 });
+
+      // When
+      const committed = await commitAndPush({
+        filesToCommit: ['src/data/posts.ts'],
+        extraFiles: ['.blog/keywords-used.json'],
+        commitMessage: 'feat(blog): add post',
+        topic: 'general',
+        location: '',
+        date: '2026-10-11',
+        branch: 'main',
+      });
+
+      // Then
+      expect(committed).toBe(false);
+      expect(exec.exec).not.toHaveBeenCalledWith('git', ['add', '.blog/keywords-used.json']);
+      expect(exec.exec).not.toHaveBeenCalledWith('git', expect.arrayContaining(['commit']));
+    });
+  });
 });

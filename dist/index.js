@@ -26145,6 +26145,7 @@ const {
  * Commits and pushes changes to the repository.
  * @param {object} options
  * @param {string[]} options.filesToCommit - Specific files to stage (empty = stage all)
+ * @param {string[]} [options.extraFiles] - Files committed only alongside a post (e.g. keyword state)
  * @param {string} options.commitMessage - Commit message template with {topic} and {location}
  * @param {string} options.topic - Resolved topic
  * @param {string} options.location - Resolved location
@@ -26152,7 +26153,7 @@ const {
  * @param {string} options.branch - Branch to push to
  * @returns {Promise<boolean>} True if changes were committed, false if no changes
  */
-async function commitAndPush({ filesToCommit, commitMessage, topic, location, date, branch }) {
+async function commitAndPush({ filesToCommit, extraFiles = [], commitMessage, topic, location, date, branch }) {
   try {
     // Configure git identity
     await exec.exec('git', ['config', 'user.name', GIT_USER_NAME]);
@@ -26173,6 +26174,10 @@ async function commitAndPush({ filesToCommit, commitMessage, topic, location, da
     if (!diffOutput.stdout.trim()) {
       core.info('No changes to commit.');
       return false;
+    }
+
+    for (const file of extraFiles) {
+      await exec.exec('git', ['add', file]);
     }
 
     // Build commit message from template
@@ -26255,6 +26260,24 @@ function readProductBrief(productBrief) {
 }
 
 /**
+ * Trims keywords and drops blanks, non-strings and case-insensitive duplicates.
+ */
+function readKeywords(keywords) {
+  if (!Array.isArray(keywords)) return [];
+  const seen = new Set();
+  const cleaned = [];
+  for (const keyword of keywords) {
+    if (typeof keyword !== 'string') continue;
+    const trimmed = keyword.trim();
+    const key = trimmed.toLowerCase();
+    if (!trimmed || seen.has(key)) continue;
+    seen.add(key);
+    cleaned.push(trimmed);
+  }
+  return cleaned;
+}
+
+/**
  * Reads and parses the blog config file, applying defaults for missing fields.
  * @param {string} configPath - Path to the blog.config.json file
  * @returns {object} Parsed config with defaults applied
@@ -26279,6 +26302,7 @@ function readConfig(configPath) {
       ...(parsed.claude && parsed.claude.model ? { model: parsed.claude.model } : {}),
     },
     productBrief: readProductBrief(parsed.productBrief),
+    keywords: readKeywords(parsed.keywords),
     validationCommand: parsed.validationCommand || '',
     buildCommand: parsed.buildCommand || '',
     filesToCommit: parsed.filesToCommit || [],
@@ -26375,6 +26399,16 @@ const CLAUDE_LABEL_POST_FIX = 'post fix';
 const CLAUDE_OUTPUT_FORMAT = 'json';
 const COST_DECIMALS = 4;
 
+// Target keywords: an optional list in the config, used one per post in order
+const KEYWORDS_STATE_PATH = '.blog/keywords-used.json';
+const KEYWORD_PROMPT_SECTION = [
+  '',
+  '## Target Keyword',
+  '',
+  'Build this post around the search keyword "{{KEYWORD}}". Use it naturally in the title, the slug, the first paragraph, at least one H2 heading, and the meta description. Pick an angle that answers what someone searching for it wants to know. Every other instruction above still applies, including only stating facts you can support.',
+].join('\n');
+const PLACEHOLDER_KEYWORD = '{{KEYWORD}}';
+
 // Action modes
 const MODE_GENERATE = 'generate';
 const MODE_SETUP = 'setup';
@@ -26440,6 +26474,9 @@ const BRIEF_EXCLUDED_PATTERNS = [
 ];
 
 module.exports = {
+  KEYWORDS_STATE_PATH,
+  KEYWORD_PROMPT_SECTION,
+  PLACEHOLDER_KEYWORD,
   CLAUDE_LABEL_SETUP,
   CLAUDE_LABEL_BRIEF,
   CLAUDE_LABEL_POST,
@@ -26823,6 +26860,65 @@ module.exports = { FIX_POST_PROMPT_TEMPLATE };
 
 /***/ }),
 
+/***/ 5577:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+const fs = __nccwpck_require__(9896);
+const path = __nccwpck_require__(6928);
+const { KEYWORDS_STATE_PATH, KEYWORD_PROMPT_SECTION, PLACEHOLDER_KEYWORD } = __nccwpck_require__(9992);
+
+const normalize = (keyword) => keyword.trim().toLowerCase();
+
+function readState(repoRoot) {
+  try {
+    const state = JSON.parse(fs.readFileSync(path.join(repoRoot, KEYWORDS_STATE_PATH), 'utf8'));
+    return Array.isArray(state.used) ? state : { used: [] };
+  } catch {
+    return { used: [] };
+  }
+}
+
+/**
+ * The first configured keyword no post has used yet, or null when there are
+ * none left, in which case posts fall back to their usual topic choice.
+ * @param {object} options
+ * @param {string} options.repoRoot
+ * @param {string[]} options.keywords - From the config, in priority order
+ * @returns {string|null}
+ */
+function pickKeyword({ repoRoot, keywords }) {
+  if (!keywords || keywords.length === 0) return null;
+  const used = new Set(readState(repoRoot).used.map((entry) => normalize(String(entry.keyword))));
+  return keywords.find((keyword) => !used.has(normalize(keyword))) || null;
+}
+
+/**
+ * Records a keyword as used so later posts move on to the next one.
+ * @returns {string} Repo-relative path of the state file, to commit with the post
+ */
+function markKeywordUsed({ repoRoot, keyword, date }) {
+  const state = readState(repoRoot);
+  state.used.push({ keyword, date });
+  const fullPath = path.join(repoRoot, KEYWORDS_STATE_PATH);
+  fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+  fs.writeFileSync(fullPath, JSON.stringify(state, null, 2) + '\n', 'utf8');
+  return KEYWORDS_STATE_PATH;
+}
+
+/**
+ * Appends keyword instructions to any repo's prompt, so prompts written before
+ * keywords existed need no changes.
+ */
+function addKeywordToPrompt(prompt, keyword) {
+  if (!keyword) return prompt;
+  return prompt + '\n' + KEYWORD_PROMPT_SECTION.split(PLACEHOLDER_KEYWORD).join(keyword);
+}
+
+module.exports = { pickKeyword, markKeywordUsed, addKeywordToPrompt };
+
+
+/***/ }),
+
 /***/ 3394:
 /***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
 
@@ -27006,6 +27102,7 @@ const { runSetup } = __nccwpck_require__(3292);
 const { refreshBrief } = __nccwpck_require__(3509);
 const { installDependencies } = __nccwpck_require__(1596);
 const { getCostSummary } = __nccwpck_require__(2552);
+const { pickKeyword, markKeywordUsed, addKeywordToPrompt } = __nccwpck_require__(5577);
 const {
   DEFAULT_CONFIG_PATH,
   DEFAULT_COMMIT_PUSH_BRANCH,
@@ -27076,7 +27173,9 @@ async function run() {
 
     // 5. Build prompt
     core.info('Building prompt...');
-    const prompt = buildPrompt({ config, topic, location, date });
+    const keyword = pickKeyword({ repoRoot: process.cwd(), keywords: config.keywords });
+    if (keyword) core.info('Target keyword: ' + keyword);
+    const prompt = addKeywordToPrompt(buildPrompt({ config, topic, location, date }), keyword);
 
     // 6. Install and run Claude Code CLI
     core.info('Installing Claude Code CLI...');
@@ -27097,12 +27196,16 @@ async function run() {
     });
     core.setOutput('build-check', buildCheck);
 
+    // The keyword is only used up once the post has passed the build check
+    const extraFiles = keyword ? [markKeywordUsed({ repoRoot: process.cwd(), keyword, date })] : [];
+
     // 9. Commit and push (if auto-commit enabled)
     let committed = false;
     if (autoCommit) {
       core.info('Committing and pushing changes...');
       committed = await commitAndPush({
         filesToCommit: config.filesToCommit,
+        extraFiles,
         commitMessage: config.commitMessage,
         topic,
         location,
@@ -27117,6 +27220,7 @@ async function run() {
     core.setOutput('topic', topic);
     core.setOutput('location', location);
     core.setOutput('date', date);
+    core.setOutput('keyword', keyword || '');
     core.setOutput('committed', String(committed));
 
     // Generate slug and title from topic/location/date for outputs
@@ -27208,6 +27312,7 @@ Write \`{{CONFIG_PATH}}\` as valid JSON:
     "4": "<topic>", "5": "<topic>", "6": "<topic>"
   },
   "locations": ["<city>", "<city>"],
+  "keywords": [],
   "postCountCommand": "<shell command that prints the number of existing posts>",
   "claude": { "allowedTools": "Read,Edit,Glob,Grep", "maxTurns": 25 },
   "buildCommand": "<the repo's build command, or empty string if none>",
@@ -27216,6 +27321,7 @@ Write \`{{CONFIG_PATH}}\` as valid JSON:
 }
 \`\`\`
 
+- Leave \`"keywords": []\` empty. The owner adds target search keywords there later; each post then uses the next unused one.
 - \`topicSchedule\` keys are days of the week (0 = Sunday). Spread the main services across the week, weighting the most important service.
 
 Then write \`{{PROMPT_TEMPLATE_PATH}}\` from the reference template at the end, adapted to this repo. Use \`{{COMPANY_NAME}}\`, \`{{PHONE}}\`, and \`{{WEBSITE}}\` where the post should mention the business, and keep \`{{TOPIC}}\`, \`{{LOCATION}}\`, and \`{{DATE}}\` as they are; they are filled in at run time.
@@ -27230,6 +27336,7 @@ Write \`{{CONFIG_PATH}}\` as valid JSON:
 {
   "promptTemplatePath": "{{PROMPT_TEMPLATE_PATH}}",
   "productBrief": {},
+  "keywords": [],
   "placeholders": {
     "PRODUCT_NAME": "<product name>",
     "WEBSITE": "<domain, or empty string if none>"
@@ -27243,6 +27350,7 @@ Write \`{{CONFIG_PATH}}\` as valid JSON:
 \`\`\`
 
 - \`"productBrief": {}\` turns on the product brief with its defaults. Leave it empty.
+- Leave \`"keywords": []\` empty. The owner adds target search keywords there later; each post then uses the next unused one.
 - Do not add \`topicSchedule\` or \`locations\`.
 
 Then write \`{{PROMPT_TEMPLATE_PATH}}\`. Use the reference template at the end only for its structure (checking existing posts, inserting the post in the right format). Replace the topic and location parts with these instructions, keeping \`{{PRODUCT_BRIEF_PATH}}\` and \`{{DATE}}\` exactly as written:
