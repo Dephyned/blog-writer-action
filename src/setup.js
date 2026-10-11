@@ -27,6 +27,7 @@ const {
   ERROR_SETUP_CONFIG_INVALID,
   ERROR_SETUP_CONFIG_UNPARSEABLE,
   ERROR_SETUP_PROMPT_MISSING,
+  CLAUDE_LABEL_SETUP,
 } = require('./constants');
 
 /**
@@ -121,7 +122,7 @@ async function runSetup({ repoRoot, configPath, branch }) {
   await runClaude(buildSetupPrompt(configPath), {
     allowedTools: SETUP_ALLOWED_TOOLS,
     maxTurns: SETUP_MAX_TURNS,
-  });
+  }, CLAUDE_LABEL_SETUP);
 
   checkForNoBlog(repoRoot);
   const { config, promptTemplatePath } = validateSetupOutput(repoRoot, configPath);

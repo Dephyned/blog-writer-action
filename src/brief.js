@@ -22,6 +22,7 @@ const {
   PLACEHOLDER_FILE_LIST,
   PLACEHOLDER_BRIEF_TASK,
   ERROR_BRIEF_NOT_WRITTEN,
+  CLAUDE_LABEL_BRIEF,
 } = require('./constants');
 
 /**
@@ -137,7 +138,8 @@ async function refreshBrief({ repoRoot, briefConfig, branch, now = new Date() })
   await installClaudeCli();
   await runClaude(
     buildBriefPrompt({ briefPath, files, task: isUpdate ? BRIEF_TASK_UPDATE : BRIEF_TASK_CREATE }),
-    { allowedTools: BRIEF_ALLOWED_TOOLS, maxTurns: briefConfig.maxTurns, model: briefConfig.model }
+    { allowedTools: BRIEF_ALLOWED_TOOLS, maxTurns: briefConfig.maxTurns, model: briefConfig.model },
+    CLAUDE_LABEL_BRIEF
   );
 
   if (!fs.existsSync(fullBriefPath) || !fs.readFileSync(fullBriefPath, 'utf8').trim()) {

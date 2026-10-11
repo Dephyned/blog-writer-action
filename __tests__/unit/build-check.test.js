@@ -105,6 +105,7 @@ describe('Feature: Making sure the build check works', () => {
       expect(claudePrompt()).toContain("Can't resolve '@marketmee/shared'");
       expect(claudePrompt()).toContain(CONFIG_PATH);
       expect(runClaude.mock.calls[0][1]).toMatchObject({ allowedTools: 'Read,Edit,Glob,Grep' });
+      expect(runClaude.mock.calls[0][2]).toBe('build command fix');
       expect(readConfigFile().buildCommand).toBe(FIXED_COMMAND);
     });
 
@@ -242,6 +243,7 @@ describe('Feature: Making sure the build check works', () => {
       queueBuilds(false, true, true);
       await verify({ ...BASE_CONFIG, claude: { allowedTools: 'Read,Edit', maxTurns: 25, model: 'claude-sonnet-5' } });
       expect(runClaude.mock.calls[0][1]).toMatchObject({ model: 'claude-sonnet-5' });
+      expect(runClaude.mock.calls[0][2]).toBe('post fix');
     });
   });
 });

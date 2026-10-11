@@ -26,6 +26,8 @@ const {
   PLACEHOLDER_BUILD_OUTPUT,
   PLACEHOLDER_POST_FILES,
   ERROR_POST_BROKE_BUILD,
+  CLAUDE_LABEL_BUILD_FIX,
+  CLAUDE_LABEL_POST_FIX,
 } = require('./constants');
 
 /**
@@ -71,7 +73,7 @@ async function repairBuildCommand({ repoRoot, configPath, buildCommand, output }
     .split(PLACEHOLDER_CONFIG_PATH).join(configPath)
     .split(PLACEHOLDER_BUILD_COMMAND).join(buildCommand)
     .split(PLACEHOLDER_BUILD_OUTPUT).join(output);
-  await runClaude(prompt, { allowedTools: FIX_ALLOWED_TOOLS, maxTurns: FIX_BUILD_MAX_TURNS });
+  await runClaude(prompt, { allowedTools: FIX_ALLOWED_TOOLS, maxTurns: FIX_BUILD_MAX_TURNS }, CLAUDE_LABEL_BUILD_FIX);
 
   const proposed = readConfigFile(repoRoot, configPath).buildCommand;
   if (proposed && proposed !== buildCommand && (await tryBuild(repoRoot, proposed)).ok) {
@@ -118,7 +120,7 @@ async function fixPost({ repoRoot, config, postFiles, output }) {
     allowedTools: FIX_ALLOWED_TOOLS,
     maxTurns: FIX_POST_MAX_TURNS,
     ...(model ? { model } : {}),
-  });
+  }, CLAUDE_LABEL_POST_FIX);
 
   const retry = await tryBuild(repoRoot, config.buildCommand);
   if (retry.ok) return BUILD_CHECK_POST_FIXED;

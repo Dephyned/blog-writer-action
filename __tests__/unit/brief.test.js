@@ -148,7 +148,7 @@ describe('Feature: Product brief', () => {
         allowedTools: 'Read,Write,Edit,Glob,Grep',
         maxTurns: 30,
         model: HAIKU,
-      });
+      }, 'product brief');
       expect(prompt()).toContain('src/routes/appointments.js');
       expect(prompt()).toContain(BRIEF_PATH);
       expect(prompt()).not.toContain('appointments.test.js');

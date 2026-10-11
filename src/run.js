@@ -10,7 +10,15 @@ const { resolveMode } = require('./mode');
 const { runSetup } = require('./setup');
 const { refreshBrief } = require('./brief');
 const { installDependencies } = require('./dependencies');
-const { DEFAULT_CONFIG_PATH, DEFAULT_COMMIT_PUSH_BRANCH, MODE_SETUP, MODE_AUTO } = require('./constants');
+const { getCostSummary } = require('./cost');
+const {
+  DEFAULT_CONFIG_PATH,
+  DEFAULT_COMMIT_PUSH_BRANCH,
+  MODE_SETUP,
+  MODE_AUTO,
+  CLAUDE_LABEL_POST,
+  COST_DECIMALS,
+} = require('./constants');
 
 /**
  * Runs the action. In auto mode a repo's first run sets it up and then writes
@@ -80,7 +88,7 @@ async function run() {
     await installClaudeCli();
 
     core.info('Running Claude to generate blog post...');
-    await runClaude(prompt, config.claude);
+    await runClaude(prompt, config.claude, CLAUDE_LABEL_POST);
 
     // 7. Run validation (if configured)
     await runValidation(config.validationCommand);
@@ -128,7 +136,19 @@ async function run() {
     core.info('Blog post generation complete!');
   } catch (error) {
     core.setFailed(error.message);
+  } finally {
+    reportCost();
   }
+}
+
+/**
+ * Logs what every Claude call in this run cost, even when the run failed.
+ */
+function reportCost() {
+  const { totalUsd, lines } = getCostSummary();
+  core.info('Claude cost for this run:');
+  lines.forEach((line) => core.info(line));
+  core.setOutput('cost-usd', totalUsd.toFixed(COST_DECIMALS));
 }
 
 module.exports = { run };

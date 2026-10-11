@@ -25719,6 +25719,7 @@ const {
   PLACEHOLDER_FILE_LIST,
   PLACEHOLDER_BRIEF_TASK,
   ERROR_BRIEF_NOT_WRITTEN,
+  CLAUDE_LABEL_BRIEF,
 } = __nccwpck_require__(9992);
 
 /**
@@ -25834,7 +25835,8 @@ async function refreshBrief({ repoRoot, briefConfig, branch, now = new Date() })
   await installClaudeCli();
   await runClaude(
     buildBriefPrompt({ briefPath, files, task: isUpdate ? BRIEF_TASK_UPDATE : BRIEF_TASK_CREATE }),
-    { allowedTools: BRIEF_ALLOWED_TOOLS, maxTurns: briefConfig.maxTurns, model: briefConfig.model }
+    { allowedTools: BRIEF_ALLOWED_TOOLS, maxTurns: briefConfig.maxTurns, model: briefConfig.model },
+    CLAUDE_LABEL_BRIEF
   );
 
   if (!fs.existsSync(fullBriefPath) || !fs.readFileSync(fullBriefPath, 'utf8').trim()) {
@@ -25882,6 +25884,8 @@ const {
   PLACEHOLDER_BUILD_OUTPUT,
   PLACEHOLDER_POST_FILES,
   ERROR_POST_BROKE_BUILD,
+  CLAUDE_LABEL_BUILD_FIX,
+  CLAUDE_LABEL_POST_FIX,
 } = __nccwpck_require__(9992);
 
 /**
@@ -25927,7 +25931,7 @@ async function repairBuildCommand({ repoRoot, configPath, buildCommand, output }
     .split(PLACEHOLDER_CONFIG_PATH).join(configPath)
     .split(PLACEHOLDER_BUILD_COMMAND).join(buildCommand)
     .split(PLACEHOLDER_BUILD_OUTPUT).join(output);
-  await runClaude(prompt, { allowedTools: FIX_ALLOWED_TOOLS, maxTurns: FIX_BUILD_MAX_TURNS });
+  await runClaude(prompt, { allowedTools: FIX_ALLOWED_TOOLS, maxTurns: FIX_BUILD_MAX_TURNS }, CLAUDE_LABEL_BUILD_FIX);
 
   const proposed = readConfigFile(repoRoot, configPath).buildCommand;
   if (proposed && proposed !== buildCommand && (await tryBuild(repoRoot, proposed)).ok) {
@@ -25974,7 +25978,7 @@ async function fixPost({ repoRoot, config, postFiles, output }) {
     allowedTools: FIX_ALLOWED_TOOLS,
     maxTurns: FIX_POST_MAX_TURNS,
     ...(model ? { model } : {}),
-  });
+  }, CLAUDE_LABEL_POST_FIX);
 
   const retry = await tryBuild(repoRoot, config.buildCommand);
   if (retry.ok) return BUILD_CHECK_POST_FIXED;
@@ -26045,7 +26049,9 @@ const {
   CLAUDE_CLI_PACKAGE,
   ERROR_CLAUDE_CLI_INSTALL_FAILED,
   ERROR_CLAUDE_CLI_RUN_FAILED,
+  CLAUDE_OUTPUT_FORMAT,
 } = __nccwpck_require__(9992);
+const { recordCost, formatUsd } = __nccwpck_require__(2552);
 
 /**
  * Installs the Claude Code CLI globally via npm.
@@ -26059,12 +26065,22 @@ async function installClaudeCli() {
   }
 }
 
+function parseResult(stdout) {
+  try {
+    return JSON.parse(stdout);
+  } catch {
+    return null;
+  }
+}
+
 /**
- * Runs the Claude Code CLI with the given prompt and configuration.
+ * Runs the Claude Code CLI with the given prompt and configuration, and records
+ * what the call cost from the CLI's JSON result.
  * @param {string} prompt - The full prompt to send to Claude
  * @param {object} claudeConfig - Config with allowedTools, maxTurns and an optional model
+ * @param {string} label - What the call is for, used in the cost report
  */
-async function runClaude(prompt, claudeConfig) {
+async function runClaude(prompt, claudeConfig, label) {
   const args = [
     '-p',
     prompt,
@@ -26078,12 +26094,33 @@ async function runClaude(prompt, claudeConfig) {
     args.push('--model', claudeConfig.model);
   }
 
+  args.push('--output-format', CLAUDE_OUTPUT_FORMAT);
+
+  let output;
   try {
-    await exec.exec('claude', args, {
+    output = await exec.getExecOutput('claude', args, {
       env: { ...process.env },
+      silent: true,
+      ignoreReturnCode: true,
     });
   } catch (err) {
     throw new Error(ERROR_CLAUDE_CLI_RUN_FAILED + ': ' + err.message);
+  }
+
+  const result = parseResult(output.stdout);
+  core.info(result && typeof result.result === 'string' ? result.result : output.stdout);
+
+  const model = result && result.modelUsage ? Object.keys(result.modelUsage).join(', ') : claudeConfig.model || null;
+  const costUsd = result && typeof result.total_cost_usd === 'number' ? result.total_cost_usd : null;
+  const turns = result && typeof result.num_turns === 'number' ? result.num_turns : null;
+  recordCost({ label, costUsd, turns, model });
+  if (costUsd !== null) {
+    core.info(`Claude cost for ${label}: ${formatUsd(costUsd)} (${turns} turns, ${model})`);
+  }
+
+  if (output.exitCode !== 0) {
+    const reason = (result && result.subtype) || output.stderr.trim() || `exit code ${output.exitCode}`;
+    throw new Error(ERROR_CLAUDE_CLI_RUN_FAILED + ': ' + reason);
   }
 }
 
@@ -26329,6 +26366,15 @@ const PLACEHOLDER_BUILD_OUTPUT = '{{BUILD_OUTPUT}}';
 const PLACEHOLDER_POST_FILES = '{{POST_FILES}}';
 const ERROR_POST_BROKE_BUILD = 'The new post broke the build and could not be fixed, so it was discarded';
 
+// Cost reporting: labels for each kind of Claude call
+const CLAUDE_LABEL_SETUP = 'setup';
+const CLAUDE_LABEL_BRIEF = 'product brief';
+const CLAUDE_LABEL_POST = 'post';
+const CLAUDE_LABEL_BUILD_FIX = 'build command fix';
+const CLAUDE_LABEL_POST_FIX = 'post fix';
+const CLAUDE_OUTPUT_FORMAT = 'json';
+const COST_DECIMALS = 4;
+
 // Action modes
 const MODE_GENERATE = 'generate';
 const MODE_SETUP = 'setup';
@@ -26394,6 +26440,13 @@ const BRIEF_EXCLUDED_PATTERNS = [
 ];
 
 module.exports = {
+  CLAUDE_LABEL_SETUP,
+  CLAUDE_LABEL_BRIEF,
+  CLAUDE_LABEL_POST,
+  CLAUDE_LABEL_BUILD_FIX,
+  CLAUDE_LABEL_POST_FIX,
+  CLAUDE_OUTPUT_FORMAT,
+  COST_DECIMALS,
   BUILD_ENV_OVERRIDES,
   BUILD_OUTPUT_TAIL_LINES,
   FIX_ALLOWED_TOOLS,
@@ -26489,6 +26542,53 @@ module.exports = {
   BRIEF_FILE_LIST_TRUNCATED,
   BRIEF_EXCLUDED_PATTERNS,
 };
+
+
+/***/ }),
+
+/***/ 2552:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+const { COST_DECIMALS } = __nccwpck_require__(9992);
+
+/**
+ * Collects what each Claude call in a run cost, as reported by the CLI.
+ */
+const calls = [];
+
+const formatUsd = (usd) => `$${usd.toFixed(COST_DECIMALS)}`;
+
+/**
+ * @param {object} call
+ * @param {string} call.label - What the call was for (setup, post, ...)
+ * @param {number|null} call.costUsd - Null when the CLI didn't report it
+ * @param {number|null} call.turns
+ * @param {string|null} call.model
+ */
+function recordCost({ label, costUsd, turns, model }) {
+  calls.push({ label, costUsd, turns, model });
+}
+
+function describeCall({ label, costUsd, turns, model }) {
+  if (typeof costUsd !== 'number') return `${label}: cost unknown`;
+  return `${label}: ${formatUsd(costUsd)} (${turns} turns, ${model})`;
+}
+
+/**
+ * @returns {{totalUsd: number, lines: string[]}}
+ */
+function getCostSummary() {
+  const totalUsd = calls.reduce((sum, call) => sum + (typeof call.costUsd === 'number' ? call.costUsd : 0), 0);
+  const someUnknown = calls.some((call) => typeof call.costUsd !== 'number');
+  const totalLine = `Total: ${someUnknown ? 'at least ' : ''}${formatUsd(totalUsd)}`;
+  return { totalUsd, lines: [...calls.map(describeCall), totalLine] };
+}
+
+function resetCosts() {
+  calls.length = 0;
+}
+
+module.exports = { recordCost, getCostSummary, resetCosts, formatUsd };
 
 
 /***/ }),
@@ -26905,7 +27005,15 @@ const { resolveMode } = __nccwpck_require__(3394);
 const { runSetup } = __nccwpck_require__(3292);
 const { refreshBrief } = __nccwpck_require__(3509);
 const { installDependencies } = __nccwpck_require__(1596);
-const { DEFAULT_CONFIG_PATH, DEFAULT_COMMIT_PUSH_BRANCH, MODE_SETUP, MODE_AUTO } = __nccwpck_require__(9992);
+const { getCostSummary } = __nccwpck_require__(2552);
+const {
+  DEFAULT_CONFIG_PATH,
+  DEFAULT_COMMIT_PUSH_BRANCH,
+  MODE_SETUP,
+  MODE_AUTO,
+  CLAUDE_LABEL_POST,
+  COST_DECIMALS,
+} = __nccwpck_require__(9992);
 
 /**
  * Runs the action. In auto mode a repo's first run sets it up and then writes
@@ -26975,7 +27083,7 @@ async function run() {
     await installClaudeCli();
 
     core.info('Running Claude to generate blog post...');
-    await runClaude(prompt, config.claude);
+    await runClaude(prompt, config.claude, CLAUDE_LABEL_POST);
 
     // 7. Run validation (if configured)
     await runValidation(config.validationCommand);
@@ -27023,7 +27131,19 @@ async function run() {
     core.info('Blog post generation complete!');
   } catch (error) {
     core.setFailed(error.message);
+  } finally {
+    reportCost();
   }
+}
+
+/**
+ * Logs what every Claude call in this run cost, even when the run failed.
+ */
+function reportCost() {
+  const { totalUsd, lines } = getCostSummary();
+  core.info('Claude cost for this run:');
+  lines.forEach((line) => core.info(line));
+  core.setOutput('cost-usd', totalUsd.toFixed(COST_DECIMALS));
 }
 
 module.exports = { run };
@@ -27182,6 +27302,7 @@ const {
   ERROR_SETUP_CONFIG_INVALID,
   ERROR_SETUP_CONFIG_UNPARSEABLE,
   ERROR_SETUP_PROMPT_MISSING,
+  CLAUDE_LABEL_SETUP,
 } = __nccwpck_require__(9992);
 
 /**
@@ -27276,7 +27397,7 @@ async function runSetup({ repoRoot, configPath, branch }) {
   await runClaude(buildSetupPrompt(configPath), {
     allowedTools: SETUP_ALLOWED_TOOLS,
     maxTurns: SETUP_MAX_TURNS,
-  });
+  }, CLAUDE_LABEL_SETUP);
 
   checkForNoBlog(repoRoot);
   const { config, promptTemplatePath } = validateSetupOutput(repoRoot, configPath);

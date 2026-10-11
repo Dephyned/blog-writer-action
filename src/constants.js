@@ -70,6 +70,15 @@ const PLACEHOLDER_BUILD_OUTPUT = '{{BUILD_OUTPUT}}';
 const PLACEHOLDER_POST_FILES = '{{POST_FILES}}';
 const ERROR_POST_BROKE_BUILD = 'The new post broke the build and could not be fixed, so it was discarded';
 
+// Cost reporting: labels for each kind of Claude call
+const CLAUDE_LABEL_SETUP = 'setup';
+const CLAUDE_LABEL_BRIEF = 'product brief';
+const CLAUDE_LABEL_POST = 'post';
+const CLAUDE_LABEL_BUILD_FIX = 'build command fix';
+const CLAUDE_LABEL_POST_FIX = 'post fix';
+const CLAUDE_OUTPUT_FORMAT = 'json';
+const COST_DECIMALS = 4;
+
 // Action modes
 const MODE_GENERATE = 'generate';
 const MODE_SETUP = 'setup';
@@ -135,6 +144,13 @@ const BRIEF_EXCLUDED_PATTERNS = [
 ];
 
 module.exports = {
+  CLAUDE_LABEL_SETUP,
+  CLAUDE_LABEL_BRIEF,
+  CLAUDE_LABEL_POST,
+  CLAUDE_LABEL_BUILD_FIX,
+  CLAUDE_LABEL_POST_FIX,
+  CLAUDE_OUTPUT_FORMAT,
+  COST_DECIMALS,
   BUILD_ENV_OVERRIDES,
   BUILD_OUTPUT_TAIL_LINES,
   FIX_ALLOWED_TOOLS,

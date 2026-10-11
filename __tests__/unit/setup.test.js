@@ -85,7 +85,8 @@ describe('Feature: Setup mode', () => {
       expect(installClaudeCli).toHaveBeenCalled();
       expect(runClaude).toHaveBeenCalledWith(
         expect.stringContaining(CONFIG_PATH),
-        { allowedTools: 'Read,Write,Edit,Glob,Grep', maxTurns: 40 }
+        { allowedTools: 'Read,Write,Edit,Glob,Grep', maxTurns: 40 },
+        'setup'
       );
 
       const calls = gitCalls();

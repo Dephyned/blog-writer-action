@@ -8,6 +8,7 @@ const { runClaude } = require('../../src/claude');
 const { commitAndPush } = require('../../src/commit');
 const { installDependencies } = require('../../src/dependencies');
 const { verifyPostBuild } = require('../../src/build-check');
+const { recordCost, resetCosts } = require('../../src/cost');
 const { run } = require('../../src/run');
 
 jest.mock('@actions/core', () => ({
@@ -62,6 +63,7 @@ describe('Feature: Running the action', () => {
     exec.exec.mockResolvedValue(0);
     runSetup.mockImplementation(track('setup', async () => 'completed'));
     refreshBrief.mockImplementation(track('brief', async () => 'refreshed'));
+    resetCosts();
     runClaude.mockImplementation(track('post'));
     commitAndPush.mockImplementation(track('commit', async () => true));
   });
@@ -119,7 +121,7 @@ describe('Feature: Running the action', () => {
       // Then
       expect(callOrder).toEqual(['brief', 'post', 'commit']);
       expect(refreshBrief).toHaveBeenCalledWith(expect.objectContaining({ briefConfig: BRIEF_CONFIG, branch: 'main' }));
-      expect(runClaude).toHaveBeenCalledWith('the prompt', PRODUCT_CONFIG.claude);
+      expect(runClaude).toHaveBeenCalledWith('the prompt', PRODUCT_CONFIG.claude, 'post');
     });
 
     it('Given a local service repo with no brief configured, When a post is generated, Then no brief is built', async () => {
@@ -205,6 +207,45 @@ describe('Feature: Running the action', () => {
       // Then
       expect(core.setFailed).toHaveBeenCalledWith(expect.stringContaining('broke the build'));
       expect(commitAndPush).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Scenario: Reporting what the run cost', () => {
+    it('Given Claude calls cost money, When the run finishes, Then each call and the total are logged and the total is an output', async () => {
+      // Given
+      resolveMode.mockReturnValue('setup');
+      readConfig.mockReturnValue(PRODUCT_CONFIG);
+      runSetup.mockImplementation(async () => {
+        recordCost({ label: 'setup', costUsd: 0.4, turns: 18, model: 'claude-sonnet-5' });
+        return 'completed';
+      });
+      runClaude.mockImplementation(async () => recordCost({ label: 'post', costUsd: 0.15, turns: 9, model: 'claude-sonnet-5' }));
+
+      // When
+      await run();
+
+      // Then
+      expect(core.info).toHaveBeenCalledWith('setup: $0.4000 (18 turns, claude-sonnet-5)');
+      expect(core.info).toHaveBeenCalledWith('post: $0.1500 (9 turns, claude-sonnet-5)');
+      expect(core.info).toHaveBeenCalledWith('Total: $0.5500');
+      expect(core.setOutput).toHaveBeenCalledWith('cost-usd', '0.5500');
+    });
+
+    it('Given the run fails after spending money, When it ends, Then the cost so far is still logged', async () => {
+      // Given
+      resolveMode.mockReturnValue('setup');
+      runSetup.mockImplementation(async () => {
+        recordCost({ label: 'setup', costUsd: 0.3, turns: 40, model: 'claude-sonnet-5' });
+        throw new Error('Setup failed, config is missing required fields: filesToCommit');
+      });
+
+      // When
+      await run();
+
+      // Then
+      expect(core.setFailed).toHaveBeenCalled();
+      expect(core.info).toHaveBeenCalledWith('Total: $0.3000');
+      expect(core.setOutput).toHaveBeenCalledWith('cost-usd', '0.3000');
     });
   });
 });
