@@ -1,3 +1,5 @@
+const os = require('os');
+const path = require('path');
 const core = require('@actions/core');
 const { readConfig } = require('./config');
 const { resolveParameters } = require('./parameters');
@@ -19,6 +21,7 @@ const {
   finishPullRequest,
   abandonPullRequestBranch,
 } = require('./publish');
+const { parseSourceRepos, fetchSourceRepos } = require('./sources');
 const {
   DEFAULT_CONFIG_PATH,
   DEFAULT_COMMIT_PUSH_BRANCH,
@@ -29,6 +32,9 @@ const {
   PUBLISH_PULL_REQUEST,
   PR_TITLE_POST,
   PR_TITLE_KEYWORD,
+  DEFAULT_SOURCE_TOKEN_URL,
+  SOURCES_WORK_DIR_NAME,
+  WARNING_SOURCES_IGNORED,
 } = require('./constants');
 
 const today = () => new Date().toISOString().split('T')[0];
@@ -138,14 +144,24 @@ async function writePost({ configPath, branch }) {
     await installDependencies({ repoRoot: process.cwd(), config });
   }
 
-  // 3b. Keep the product brief current (software products only)
+  // 3b. Keep the product brief current (software products only), including
+  // any other repos listed in source-repos
+  const sourceNames = parseSourceRepos(core.getInput('source-repos'));
   if (config.productBrief) {
     const briefResult = await refreshBrief({
       repoRoot: process.cwd(),
       briefConfig: config.productBrief,
       branch,
+      sourceNames,
+      getSources: () => fetchSourceRepos({
+        repos: sourceNames,
+        tokenUrl: core.getInput('source-token-url') || DEFAULT_SOURCE_TOKEN_URL,
+        workDir: path.join(process.env.RUNNER_TEMP || os.tmpdir(), SOURCES_WORK_DIR_NAME),
+      }),
     });
     core.setOutput('brief-result', briefResult);
+  } else if (sourceNames.length > 0) {
+    core.warning(WARNING_SOURCES_IGNORED);
   }
 
   // 4. Resolve parameters

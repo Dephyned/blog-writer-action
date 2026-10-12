@@ -34,6 +34,14 @@ inputs:
     description: 'Token used to open pull requests in pull-request mode'
     required: false
     default: ${{ github.token }}
+  source-repos:
+    description: 'Other repos (same owner, with the blog writer GitHub App installed) whose code the product brief also reads, comma separated. Needs id-token: write.'
+    required: false
+    default: ''
+  source-token-url:
+    description: 'Blog writer backend endpoint that issues read-only keys for source-repos'
+    required: false
+    default: 'https://api.thedefinedcrm.com/blog-writer/source-token'
   commit-push-branch:
     description: 'Branch to push commits to'
     required: false

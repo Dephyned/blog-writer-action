@@ -49,6 +49,10 @@ async function runClaude(prompt, claudeConfig, label) {
     args.push('--model', claudeConfig.model);
   }
 
+  for (const dir of claudeConfig.addDirs || []) {
+    args.push('--add-dir', dir);
+  }
+
   args.push('--output-format', CLAUDE_OUTPUT_FORMAT);
 
   let output;

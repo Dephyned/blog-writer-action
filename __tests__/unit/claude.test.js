@@ -146,4 +146,13 @@ describe('Feature: Claude Code CLI Integration', () => {
       expect(exec.getExecOutput.mock.calls[0][1]).not.toContain('--model');
     });
   });
+
+  describe('Scenario: Letting Claude read other folders', () => {
+    it('Given extra folders, When runClaude is called, Then each is passed with --add-dir', async () => {
+      exec.getExecOutput.mockResolvedValue({ exitCode: 0, stdout: '{}', stderr: '' });
+      await runClaude('prompt', { allowedTools: 'Read', maxTurns: 10, addDirs: ['/tmp/a', '/tmp/b'] }, 'product brief');
+      const args = exec.getExecOutput.mock.calls[0][1];
+      expect(args).toEqual(expect.arrayContaining(['--add-dir', '/tmp/a', '--add-dir', '/tmp/b']));
+    });
+  });
 });

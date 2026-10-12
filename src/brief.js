@@ -23,6 +23,8 @@ const {
   PLACEHOLDER_BRIEF_TASK,
   ERROR_BRIEF_NOT_WRITTEN,
   CLAUDE_LABEL_BRIEF,
+  BRIEF_THIS_REPO_HEADING,
+  BRIEF_SOURCE_HEADING,
 } = require('./constants');
 
 /**
@@ -61,8 +63,8 @@ function readState(repoRoot, statePath) {
   }
 }
 
-async function gitOutput(repoRoot, args) {
-  const { stdout } = await exec.getExecOutput('git', args, { cwd: repoRoot, silent: true });
+async function gitOutput(cwd, args) {
+  const { stdout } = await exec.getExecOutput('git', args, { cwd, silent: true });
   return stdout.split('\n').map((line) => line.trim()).filter(Boolean);
 }
 
@@ -79,14 +81,31 @@ async function changedSourceFiles(repoRoot, sinceCommit, briefPath) {
   }
 }
 
-function buildBriefPrompt({ briefPath, files, task }) {
-  const listed = files.slice(0, BRIEF_MAX_LISTED_FILES).map((file) => `- ${file}`);
-  if (files.length > BRIEF_MAX_LISTED_FILES) {
-    listed.push('', BRIEF_FILE_LIST_TRUNCATED);
+/**
+ * One section per repo. Source repo files use full paths so Claude can open
+ * them in their read-only copies. The total is capped across all repos.
+ * @param {Array<{heading: string|null, files: string[]}>} groups
+ */
+function formatFileList(groups) {
+  const lines = [];
+  let remaining = BRIEF_MAX_LISTED_FILES;
+  let truncated = false;
+  for (const { heading, files } of groups) {
+    if (files.length === 0) continue;
+    if (heading) lines.push(heading);
+    const shown = files.slice(0, Math.max(remaining, 0));
+    lines.push(...shown.map((file) => `- ${file}`), '');
+    remaining -= shown.length;
+    if (shown.length < files.length) truncated = true;
   }
+  if (truncated) lines.push(BRIEF_FILE_LIST_TRUNCATED);
+  return lines.join('\n').trim();
+}
+
+function buildBriefPrompt({ briefPath, groups, task }) {
   return BRIEF_PROMPT_TEMPLATE
     .split(PLACEHOLDER_BRIEF_TASK).join(task)
-    .split(PLACEHOLDER_FILE_LIST).join(listed.join('\n'))
+    .split(PLACEHOLDER_FILE_LIST).join(formatFileList(groups))
     .split(PLACEHOLDER_PRODUCT_BRIEF_PATH).join(briefPath);
 }
 
@@ -105,40 +124,74 @@ function writeState(repoRoot, statePath, state) {
  * @param {object} options.briefConfig - config.productBrief
  * @param {string} options.branch - Branch to push to
  * @param {Date} [options.now]
+ * @param {string[]} [options.sourceNames] - Other repos the brief also covers
+ * @param {Function} [options.getSources] - Downloads them; only called when a refresh is needed
  * @returns {Promise<string>} "fresh", "unchanged" or "refreshed"
  */
-async function refreshBrief({ repoRoot, briefConfig, branch, now = new Date() }) {
+async function refreshBrief({ repoRoot, briefConfig, branch, now = new Date(), sourceNames = [], getSources = async () => [] }) {
   const briefPath = briefConfig.path;
   const statePath = statePathFor(briefPath);
   const fullBriefPath = path.join(repoRoot, briefPath);
   const briefExists = fs.existsSync(fullBriefPath);
   const state = briefExists ? readState(repoRoot, statePath) : null;
+  const coveredSources = (state && state.sources) || {};
+  const hasNewSource = sourceNames.some((name) => !coveredSources[name]);
 
-  if (!isBriefStale(state, briefConfig.maxAgeDays, now)) {
+  if (!isBriefStale(state, briefConfig.maxAgeDays, now) && !hasNewSource) {
     core.info('Product brief is fresh, skipping refresh.');
     return BRIEF_RESULT_FRESH;
   }
 
+  // Source repos are only downloaded once a refresh is actually needed
+  const sources = sourceNames.length > 0 ? await getSources() : [];
+
   const [headCommit] = await gitOutput(repoRoot, ['rev-parse', 'HEAD']);
-  const newState = { generatedAt: now.toISOString(), commit: headCommit };
+  const sourceHeads = {};
+  for (const source of sources) {
+    [sourceHeads[source.name]] = await gitOutput(source.dir, ['rev-parse', 'HEAD']);
+  }
+  const newState = {
+    generatedAt: now.toISOString(),
+    commit: headCommit,
+    ...(sources.length > 0 ? { sources: sourceHeads } : {}),
+  };
 
-  const changed = state && state.commit ? await changedSourceFiles(repoRoot, state.commit, briefPath) : null;
+  const allFiles = async (dir) => filterSourceFiles(await gitOutput(dir, ['ls-files']), briefPath);
+  const blogChanged = state && state.commit ? await changedSourceFiles(repoRoot, state.commit, briefPath) : null;
+  const isUpdate = blogChanged !== null;
 
-  if (changed && changed.length === 0) {
+  // With no usable history the brief is rebuilt from every repo; otherwise each
+  // repo contributes only what changed, and a newly added repo all its files
+  const groups = [{ heading: sources.length > 0 ? BRIEF_THIS_REPO_HEADING : null, files: isUpdate ? blogChanged : await allFiles(repoRoot) }];
+  for (const source of sources) {
+    const since = isUpdate ? coveredSources[source.name] : null;
+    const changed = since ? await changedSourceFiles(source.dir, since, briefPath) : null;
+    const files = changed !== null ? changed : await allFiles(source.dir);
+    groups.push({
+      heading: BRIEF_SOURCE_HEADING.replace('{repo}', source.name),
+      files: files.map((file) => `${source.dir}/${file}`),
+    });
+  }
+
+  const fileCount = groups.reduce((sum, group) => sum + group.files.length, 0);
+  if (isUpdate && fileCount === 0) {
     core.info('No source files changed since the last brief, only bumping its date.');
     writeState(repoRoot, statePath, newState);
     await commitFiles({ repoRoot, files: [statePath], message: BRIEF_COMMIT_MESSAGE, branch });
     return BRIEF_RESULT_UNCHANGED;
   }
 
-  const isUpdate = Boolean(changed);
-  const files = isUpdate ? changed : filterSourceFiles(await gitOutput(repoRoot, ['ls-files']), briefPath);
-  core.info(`${isUpdate ? 'Updating' : 'Writing'} product brief from ${files.length} candidate files...`);
+  core.info(`${isUpdate ? 'Updating' : 'Writing'} product brief from ${fileCount} candidate files...`);
 
   await installClaudeCli();
   await runClaude(
-    buildBriefPrompt({ briefPath, files, task: isUpdate ? BRIEF_TASK_UPDATE : BRIEF_TASK_CREATE }),
-    { allowedTools: BRIEF_ALLOWED_TOOLS, maxTurns: briefConfig.maxTurns, model: briefConfig.model },
+    buildBriefPrompt({ briefPath, groups, task: isUpdate ? BRIEF_TASK_UPDATE : BRIEF_TASK_CREATE }),
+    {
+      allowedTools: BRIEF_ALLOWED_TOOLS,
+      maxTurns: briefConfig.maxTurns,
+      model: briefConfig.model,
+      ...(sources.length > 0 ? { addDirs: sources.map((source) => source.dir) } : {}),
+    },
     CLAUDE_LABEL_BRIEF
   );
 

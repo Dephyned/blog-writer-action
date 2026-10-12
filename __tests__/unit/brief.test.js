@@ -286,4 +286,102 @@ describe('Feature: Product brief', () => {
       expect(commits()).toHaveLength(0);
     });
   });
+
+  describe('Scenario: Source repos', () => {
+    const SOURCE_DIR = '/tmp/blog-sources/MarketMee__server';
+    const SOURCE = { name: 'MarketMee/server', dir: SOURCE_DIR };
+    const SOURCE_HEAD = 'serverhead1';
+
+    // Answers git commands per folder: the blog repo or the source repo
+    const mockGitWithSource = ({ sourceFiles = ['src/routes/posts.ts', 'src/__tests__/x.test.ts'], sourceChanged = [], blogChanged = [] } = {}) => {
+      exec.getExecOutput.mockImplementation(async (cmd, args, options) => {
+        const inSource = options && options.cwd === SOURCE_DIR;
+        if (args[0] === 'ls-files') return { stdout: (inSource ? sourceFiles : SOURCE_FILES).join('\n'), exitCode: 0 };
+        if (args[0] === 'rev-parse') return { stdout: `${inSource ? SOURCE_HEAD : HEAD_SHA}\n`, exitCode: 0 };
+        if (args[0] === 'diff') return { stdout: (inSource ? sourceChanged : blogChanged).join('\n'), exitCode: 0 };
+        throw new Error(`unexpected git ${args.join(' ')}`);
+      });
+    };
+
+    const readStateFile = () => JSON.parse(fs.readFileSync(path.join(repoRoot, STATE_PATH), 'utf8'));
+
+    it('Given a fresh brief that already covers the source repos, When it is refreshed, Then the sources are not even downloaded', async () => {
+      // Given
+      write(BRIEF_PATH, '# brief');
+      write(STATE_PATH, JSON.stringify({ generatedAt: new Date(NOW - 7 * DAY_MS).toISOString(), commit: OLD_SHA, sources: { 'MarketMee/server': 'old' } }));
+      const getSources = jest.fn(async () => [SOURCE]);
+
+      // When
+      const result = await refreshBrief({ repoRoot, briefConfig: BRIEF_CONFIG, branch: 'main', now: NOW, sourceNames: ['MarketMee/server'], getSources });
+
+      // Then
+      expect(result).toBe('fresh');
+      expect(getSources).not.toHaveBeenCalled();
+    });
+
+    it('Given a fresh brief and a newly added source repo, When it is refreshed, Then it refreshes now and reads that repo', async () => {
+      // Given
+      write(BRIEF_PATH, '# brief');
+      writeState(new Date(NOW - 7 * DAY_MS));
+      mockGitWithSource();
+      claudeWritesBrief();
+      const getSources = jest.fn(async () => [SOURCE]);
+
+      // When
+      const result = await refreshBrief({ repoRoot, briefConfig: BRIEF_CONFIG, branch: 'main', now: NOW, sourceNames: ['MarketMee/server'], getSources });
+
+      // Then
+      expect(result).toBe('refreshed');
+      expect(getSources).toHaveBeenCalled();
+      expect(prompt()).toContain(`${SOURCE_DIR}/src/routes/posts.ts`);
+      expect(prompt()).not.toContain('x.test.ts');
+      expect(prompt()).toContain('MarketMee/server');
+    });
+
+    it('Given a first brief with a source repo, When it is written, Then Claude may read the source folder and its commit is saved', async () => {
+      // Given
+      mockGitWithSource();
+      claudeWritesBrief();
+
+      // When
+      await refreshBrief({ repoRoot, briefConfig: BRIEF_CONFIG, branch: 'main', now: NOW, sourceNames: ['MarketMee/server'], getSources: async () => [SOURCE] });
+
+      // Then
+      expect(runClaude.mock.calls[0][1]).toMatchObject({ addDirs: [SOURCE_DIR] });
+      expect(prompt()).toContain('src/routes/appointments.js');
+      expect(prompt()).toContain(`${SOURCE_DIR}/src/routes/posts.ts`);
+      expect(readStateFile()).toEqual({ generatedAt: NOW.toISOString(), commit: HEAD_SHA, sources: { 'MarketMee/server': SOURCE_HEAD } });
+    });
+
+    it('Given a stale brief where only a source repo changed, When it is refreshed, Then only that repo\'s changed files are listed', async () => {
+      // Given
+      write(BRIEF_PATH, '# brief');
+      write(STATE_PATH, JSON.stringify({ generatedAt: new Date(NOW - 40 * DAY_MS).toISOString(), commit: OLD_SHA, sources: { 'MarketMee/server': 'serverold' } }));
+      mockGitWithSource({ sourceChanged: ['src/routes/posts.ts'] });
+      claudeWritesBrief();
+
+      // When
+      await refreshBrief({ repoRoot, briefConfig: BRIEF_CONFIG, branch: 'main', now: NOW, sourceNames: ['MarketMee/server'], getSources: async () => [SOURCE] });
+
+      // Then
+      expect(exec.getExecOutput).toHaveBeenCalledWith('git', ['diff', '--name-only', 'serverold..HEAD'], expect.objectContaining({ cwd: SOURCE_DIR }));
+      expect(prompt()).toContain(`${SOURCE_DIR}/src/routes/posts.ts`);
+      expect(prompt()).not.toContain('src/routes/appointments.js');
+    });
+
+    it('Given a stale brief and nothing changed in any repo, When it is refreshed, Then Claude is not called and every repo\'s commit is saved', async () => {
+      // Given
+      write(BRIEF_PATH, '# brief');
+      write(STATE_PATH, JSON.stringify({ generatedAt: new Date(NOW - 40 * DAY_MS).toISOString(), commit: OLD_SHA, sources: { 'MarketMee/server': 'serverold' } }));
+      mockGitWithSource();
+
+      // When
+      const result = await refreshBrief({ repoRoot, briefConfig: BRIEF_CONFIG, branch: 'main', now: NOW, sourceNames: ['MarketMee/server'], getSources: async () => [SOURCE] });
+
+      // Then
+      expect(result).toBe('unchanged');
+      expect(runClaude).not.toHaveBeenCalled();
+      expect(readStateFile().sources).toEqual({ 'MarketMee/server': SOURCE_HEAD });
+    });
+  });
 });

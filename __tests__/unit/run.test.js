@@ -16,6 +16,7 @@ const {
   abandonPullRequestBranch,
 } = require('../../src/publish');
 const { getOctokit } = require('@actions/github');
+const { fetchSourceRepos } = require('../../src/sources');
 const { recordCost, resetCosts } = require('../../src/cost');
 const { run } = require('../../src/run');
 
@@ -40,6 +41,10 @@ jest.mock('../../src/prompt', () => ({ buildPrompt: jest.fn(() => 'the prompt') 
 jest.mock('../../src/validate', () => ({ runValidation: jest.fn() }));
 jest.mock('../../src/build-check', () => ({ verifyPostBuild: jest.fn(async () => 'passed') }));
 jest.mock('../../src/commit', () => ({ commitAndPush: jest.fn(async () => true) }));
+jest.mock('../../src/sources', () => ({
+  parseSourceRepos: jest.fn((value) => (value ? value.split(',').map((repo) => repo.trim()) : [])),
+  fetchSourceRepos: jest.fn(async () => [{ name: 'MarketMee/server', dir: '/tmp/s' }]),
+}));
 jest.mock('../../src/publish', () => ({
   resolvePublishMode: jest.fn((value) => value || 'push'),
   findOpenBlogPullRequest: jest.fn(async () => null),
@@ -408,6 +413,42 @@ describe('Feature: Running the action', () => {
       expect(findOpenBlogPullRequest).not.toHaveBeenCalled();
       expect(commitAndPush).toHaveBeenCalledWith(expect.objectContaining({ branch: 'main' }));
       expect(finishPullRequest).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Scenario: Source repos', () => {
+    afterEach(() => {
+      delete inputs['source-repos'];
+      delete inputs['source-token-url'];
+    });
+
+    it('Given source repos and a product brief, When a post is generated, Then the brief gets the source names and a way to download them', async () => {
+      // Given
+      inputs['source-repos'] = 'MarketMee/server';
+      inputs['source-token-url'] = 'https://api.thedefinedcrm.com/blog-writer/source-token';
+      resolveMode.mockReturnValue('generate');
+      readConfig.mockReturnValue(PRODUCT_CONFIG);
+
+      // When
+      await run();
+
+      // Then
+      const options = refreshBrief.mock.calls[0][0];
+      expect(options.sourceNames).toEqual(['MarketMee/server']);
+      expect(fetchSourceRepos).not.toHaveBeenCalled();
+      await options.getSources();
+      expect(fetchSourceRepos).toHaveBeenCalledWith(expect.objectContaining({
+        repos: ['MarketMee/server'],
+        tokenUrl: 'https://api.thedefinedcrm.com/blog-writer/source-token',
+      }));
+    });
+
+    it('Given source repos but no product brief, When a post is generated, Then a warning says they are ignored', async () => {
+      inputs['source-repos'] = 'MarketMee/server';
+      resolveMode.mockReturnValue('generate');
+      readConfig.mockReturnValue(SERVICE_CONFIG);
+      await run();
+      expect(core.warning).toHaveBeenCalledWith(expect.stringContaining('source-repos'));
     });
   });
 });

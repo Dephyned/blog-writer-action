@@ -104,6 +104,21 @@ const PR_BODY_COST_HEADING = '### Claude cost';
 const ERROR_INVALID_PUBLISH_MODE = 'Invalid publish setting, use push or pull-request: ';
 const ERROR_PR_NOT_ALLOWED = 'GitHub would not let this workflow open a pull request. In the repo, go to Settings > Actions > General > Workflow permissions, tick "Allow GitHub Actions to create and approve pull requests", and make sure the workflow has "pull-requests: write" permission.';
 
+// Source repos: other repos the product brief reads, through a read-only key
+// the blog writer backend issues after checking the run's GitHub identity token
+const SOURCE_TOKEN_AUDIENCE = 'dephyned-blog-writer';
+const DEFAULT_SOURCE_TOKEN_URL = 'https://api.thedefinedcrm.com/blog-writer/source-token';
+const SOURCE_CLONE_URL = 'https://x-access-token:{token}@github.com/{repo}.git';
+const SOURCE_DIR_SEPARATOR = '__';
+const SOURCES_WORK_DIR_NAME = 'blog-writer-sources';
+const SOURCE_REPOS_SPLIT = /[\s,]+/;
+const EMPTY_INPUT_QUOTES = /^['"]+$/;
+const BRIEF_THIS_REPO_HEADING = '**This repo**';
+const BRIEF_SOURCE_HEADING = '**{repo}** (read-only copy, use these full paths)';
+const ERROR_NO_ID_TOKEN = 'Could not get a GitHub Actions identity token to read the source repos. Add "id-token: write" under permissions in the workflow: ';
+const ERROR_SOURCE_TOKEN = 'Could not get read access to the source repos: ';
+const WARNING_SOURCES_IGNORED = 'source-repos is set but this repo has no product brief, so the source repos are ignored.';
+
 // Action modes
 const MODE_GENERATE = 'generate';
 const MODE_SETUP = 'setup';
@@ -169,6 +184,18 @@ const BRIEF_EXCLUDED_PATTERNS = [
 ];
 
 module.exports = {
+  SOURCE_TOKEN_AUDIENCE,
+  DEFAULT_SOURCE_TOKEN_URL,
+  SOURCE_CLONE_URL,
+  SOURCE_DIR_SEPARATOR,
+  SOURCES_WORK_DIR_NAME,
+  SOURCE_REPOS_SPLIT,
+  EMPTY_INPUT_QUOTES,
+  BRIEF_THIS_REPO_HEADING,
+  BRIEF_SOURCE_HEADING,
+  ERROR_NO_ID_TOKEN,
+  ERROR_SOURCE_TOKEN,
+  WARNING_SOURCES_IGNORED,
   PUBLISH_PUSH,
   PUBLISH_PULL_REQUEST,
   VALID_PUBLISH_MODES,

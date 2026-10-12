@@ -29999,6 +29999,8 @@ const {
   PLACEHOLDER_BRIEF_TASK,
   ERROR_BRIEF_NOT_WRITTEN,
   CLAUDE_LABEL_BRIEF,
+  BRIEF_THIS_REPO_HEADING,
+  BRIEF_SOURCE_HEADING,
 } = __nccwpck_require__(9992);
 
 /**
@@ -30037,8 +30039,8 @@ function readState(repoRoot, statePath) {
   }
 }
 
-async function gitOutput(repoRoot, args) {
-  const { stdout } = await exec.getExecOutput('git', args, { cwd: repoRoot, silent: true });
+async function gitOutput(cwd, args) {
+  const { stdout } = await exec.getExecOutput('git', args, { cwd, silent: true });
   return stdout.split('\n').map((line) => line.trim()).filter(Boolean);
 }
 
@@ -30055,14 +30057,31 @@ async function changedSourceFiles(repoRoot, sinceCommit, briefPath) {
   }
 }
 
-function buildBriefPrompt({ briefPath, files, task }) {
-  const listed = files.slice(0, BRIEF_MAX_LISTED_FILES).map((file) => `- ${file}`);
-  if (files.length > BRIEF_MAX_LISTED_FILES) {
-    listed.push('', BRIEF_FILE_LIST_TRUNCATED);
+/**
+ * One section per repo. Source repo files use full paths so Claude can open
+ * them in their read-only copies. The total is capped across all repos.
+ * @param {Array<{heading: string|null, files: string[]}>} groups
+ */
+function formatFileList(groups) {
+  const lines = [];
+  let remaining = BRIEF_MAX_LISTED_FILES;
+  let truncated = false;
+  for (const { heading, files } of groups) {
+    if (files.length === 0) continue;
+    if (heading) lines.push(heading);
+    const shown = files.slice(0, Math.max(remaining, 0));
+    lines.push(...shown.map((file) => `- ${file}`), '');
+    remaining -= shown.length;
+    if (shown.length < files.length) truncated = true;
   }
+  if (truncated) lines.push(BRIEF_FILE_LIST_TRUNCATED);
+  return lines.join('\n').trim();
+}
+
+function buildBriefPrompt({ briefPath, groups, task }) {
   return BRIEF_PROMPT_TEMPLATE
     .split(PLACEHOLDER_BRIEF_TASK).join(task)
-    .split(PLACEHOLDER_FILE_LIST).join(listed.join('\n'))
+    .split(PLACEHOLDER_FILE_LIST).join(formatFileList(groups))
     .split(PLACEHOLDER_PRODUCT_BRIEF_PATH).join(briefPath);
 }
 
@@ -30081,40 +30100,74 @@ function writeState(repoRoot, statePath, state) {
  * @param {object} options.briefConfig - config.productBrief
  * @param {string} options.branch - Branch to push to
  * @param {Date} [options.now]
+ * @param {string[]} [options.sourceNames] - Other repos the brief also covers
+ * @param {Function} [options.getSources] - Downloads them; only called when a refresh is needed
  * @returns {Promise<string>} "fresh", "unchanged" or "refreshed"
  */
-async function refreshBrief({ repoRoot, briefConfig, branch, now = new Date() }) {
+async function refreshBrief({ repoRoot, briefConfig, branch, now = new Date(), sourceNames = [], getSources = async () => [] }) {
   const briefPath = briefConfig.path;
   const statePath = statePathFor(briefPath);
   const fullBriefPath = path.join(repoRoot, briefPath);
   const briefExists = fs.existsSync(fullBriefPath);
   const state = briefExists ? readState(repoRoot, statePath) : null;
+  const coveredSources = (state && state.sources) || {};
+  const hasNewSource = sourceNames.some((name) => !coveredSources[name]);
 
-  if (!isBriefStale(state, briefConfig.maxAgeDays, now)) {
+  if (!isBriefStale(state, briefConfig.maxAgeDays, now) && !hasNewSource) {
     core.info('Product brief is fresh, skipping refresh.');
     return BRIEF_RESULT_FRESH;
   }
 
+  // Source repos are only downloaded once a refresh is actually needed
+  const sources = sourceNames.length > 0 ? await getSources() : [];
+
   const [headCommit] = await gitOutput(repoRoot, ['rev-parse', 'HEAD']);
-  const newState = { generatedAt: now.toISOString(), commit: headCommit };
+  const sourceHeads = {};
+  for (const source of sources) {
+    [sourceHeads[source.name]] = await gitOutput(source.dir, ['rev-parse', 'HEAD']);
+  }
+  const newState = {
+    generatedAt: now.toISOString(),
+    commit: headCommit,
+    ...(sources.length > 0 ? { sources: sourceHeads } : {}),
+  };
 
-  const changed = state && state.commit ? await changedSourceFiles(repoRoot, state.commit, briefPath) : null;
+  const allFiles = async (dir) => filterSourceFiles(await gitOutput(dir, ['ls-files']), briefPath);
+  const blogChanged = state && state.commit ? await changedSourceFiles(repoRoot, state.commit, briefPath) : null;
+  const isUpdate = blogChanged !== null;
 
-  if (changed && changed.length === 0) {
+  // With no usable history the brief is rebuilt from every repo; otherwise each
+  // repo contributes only what changed, and a newly added repo all its files
+  const groups = [{ heading: sources.length > 0 ? BRIEF_THIS_REPO_HEADING : null, files: isUpdate ? blogChanged : await allFiles(repoRoot) }];
+  for (const source of sources) {
+    const since = isUpdate ? coveredSources[source.name] : null;
+    const changed = since ? await changedSourceFiles(source.dir, since, briefPath) : null;
+    const files = changed !== null ? changed : await allFiles(source.dir);
+    groups.push({
+      heading: BRIEF_SOURCE_HEADING.replace('{repo}', source.name),
+      files: files.map((file) => `${source.dir}/${file}`),
+    });
+  }
+
+  const fileCount = groups.reduce((sum, group) => sum + group.files.length, 0);
+  if (isUpdate && fileCount === 0) {
     core.info('No source files changed since the last brief, only bumping its date.');
     writeState(repoRoot, statePath, newState);
     await commitFiles({ repoRoot, files: [statePath], message: BRIEF_COMMIT_MESSAGE, branch });
     return BRIEF_RESULT_UNCHANGED;
   }
 
-  const isUpdate = Boolean(changed);
-  const files = isUpdate ? changed : filterSourceFiles(await gitOutput(repoRoot, ['ls-files']), briefPath);
-  core.info(`${isUpdate ? 'Updating' : 'Writing'} product brief from ${files.length} candidate files...`);
+  core.info(`${isUpdate ? 'Updating' : 'Writing'} product brief from ${fileCount} candidate files...`);
 
   await installClaudeCli();
   await runClaude(
-    buildBriefPrompt({ briefPath, files, task: isUpdate ? BRIEF_TASK_UPDATE : BRIEF_TASK_CREATE }),
-    { allowedTools: BRIEF_ALLOWED_TOOLS, maxTurns: briefConfig.maxTurns, model: briefConfig.model },
+    buildBriefPrompt({ briefPath, groups, task: isUpdate ? BRIEF_TASK_UPDATE : BRIEF_TASK_CREATE }),
+    {
+      allowedTools: BRIEF_ALLOWED_TOOLS,
+      maxTurns: briefConfig.maxTurns,
+      model: briefConfig.model,
+      ...(sources.length > 0 ? { addDirs: sources.map((source) => source.dir) } : {}),
+    },
     CLAUDE_LABEL_BRIEF
   );
 
@@ -30371,6 +30424,10 @@ async function runClaude(prompt, claudeConfig, label) {
 
   if (claudeConfig.model) {
     args.push('--model', claudeConfig.model);
+  }
+
+  for (const dir of claudeConfig.addDirs || []) {
+    args.push('--add-dir', dir);
   }
 
   args.push('--output-format', CLAUDE_OUTPUT_FORMAT);
@@ -30703,6 +30760,21 @@ const PR_BODY_COST_HEADING = '### Claude cost';
 const ERROR_INVALID_PUBLISH_MODE = 'Invalid publish setting, use push or pull-request: ';
 const ERROR_PR_NOT_ALLOWED = 'GitHub would not let this workflow open a pull request. In the repo, go to Settings > Actions > General > Workflow permissions, tick "Allow GitHub Actions to create and approve pull requests", and make sure the workflow has "pull-requests: write" permission.';
 
+// Source repos: other repos the product brief reads, through a read-only key
+// the blog writer backend issues after checking the run's GitHub identity token
+const SOURCE_TOKEN_AUDIENCE = 'dephyned-blog-writer';
+const DEFAULT_SOURCE_TOKEN_URL = 'https://api.thedefinedcrm.com/blog-writer/source-token';
+const SOURCE_CLONE_URL = 'https://x-access-token:{token}@github.com/{repo}.git';
+const SOURCE_DIR_SEPARATOR = '__';
+const SOURCES_WORK_DIR_NAME = 'blog-writer-sources';
+const SOURCE_REPOS_SPLIT = /[\s,]+/;
+const EMPTY_INPUT_QUOTES = /^['"]+$/;
+const BRIEF_THIS_REPO_HEADING = '**This repo**';
+const BRIEF_SOURCE_HEADING = '**{repo}** (read-only copy, use these full paths)';
+const ERROR_NO_ID_TOKEN = 'Could not get a GitHub Actions identity token to read the source repos. Add "id-token: write" under permissions in the workflow: ';
+const ERROR_SOURCE_TOKEN = 'Could not get read access to the source repos: ';
+const WARNING_SOURCES_IGNORED = 'source-repos is set but this repo has no product brief, so the source repos are ignored.';
+
 // Action modes
 const MODE_GENERATE = 'generate';
 const MODE_SETUP = 'setup';
@@ -30768,6 +30840,18 @@ const BRIEF_EXCLUDED_PATTERNS = [
 ];
 
 module.exports = {
+  SOURCE_TOKEN_AUDIENCE,
+  DEFAULT_SOURCE_TOKEN_URL,
+  SOURCE_CLONE_URL,
+  SOURCE_DIR_SEPARATOR,
+  SOURCES_WORK_DIR_NAME,
+  SOURCE_REPOS_SPLIT,
+  EMPTY_INPUT_QUOTES,
+  BRIEF_THIS_REPO_HEADING,
+  BRIEF_SOURCE_HEADING,
+  ERROR_NO_ID_TOKEN,
+  ERROR_SOURCE_TOKEN,
+  WARNING_SOURCES_IGNORED,
   PUBLISH_PUSH,
   PUBLISH_PULL_REQUEST,
   VALID_PUBLISH_MODES,
@@ -31528,6 +31612,8 @@ module.exports = {
 /***/ 7696:
 /***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
 
+const os = __nccwpck_require__(857);
+const path = __nccwpck_require__(6928);
 const core = __nccwpck_require__(7484);
 const { readConfig } = __nccwpck_require__(1283);
 const { resolveParameters } = __nccwpck_require__(1125);
@@ -31549,6 +31635,7 @@ const {
   finishPullRequest,
   abandonPullRequestBranch,
 } = __nccwpck_require__(2090);
+const { parseSourceRepos, fetchSourceRepos } = __nccwpck_require__(9195);
 const {
   DEFAULT_CONFIG_PATH,
   DEFAULT_COMMIT_PUSH_BRANCH,
@@ -31559,6 +31646,9 @@ const {
   PUBLISH_PULL_REQUEST,
   PR_TITLE_POST,
   PR_TITLE_KEYWORD,
+  DEFAULT_SOURCE_TOKEN_URL,
+  SOURCES_WORK_DIR_NAME,
+  WARNING_SOURCES_IGNORED,
 } = __nccwpck_require__(9992);
 
 const today = () => new Date().toISOString().split('T')[0];
@@ -31668,14 +31758,24 @@ async function writePost({ configPath, branch }) {
     await installDependencies({ repoRoot: process.cwd(), config });
   }
 
-  // 3b. Keep the product brief current (software products only)
+  // 3b. Keep the product brief current (software products only), including
+  // any other repos listed in source-repos
+  const sourceNames = parseSourceRepos(core.getInput('source-repos'));
   if (config.productBrief) {
     const briefResult = await refreshBrief({
       repoRoot: process.cwd(),
       briefConfig: config.productBrief,
       branch,
+      sourceNames,
+      getSources: () => fetchSourceRepos({
+        repos: sourceNames,
+        tokenUrl: core.getInput('source-token-url') || DEFAULT_SOURCE_TOKEN_URL,
+        workDir: path.join(process.env.RUNNER_TEMP || os.tmpdir(), SOURCES_WORK_DIR_NAME),
+      }),
     });
     core.setOutput('brief-result', briefResult);
+  } else if (sourceNames.length > 0) {
+    core.warning(WARNING_SOURCES_IGNORED);
   }
 
   // 4. Resolve parameters
@@ -32036,6 +32136,86 @@ async function runSetup({ repoRoot, configPath, branch }) {
 }
 
 module.exports = { runSetup };
+
+
+/***/ }),
+
+/***/ 9195:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+const path = __nccwpck_require__(6928);
+const core = __nccwpck_require__(7484);
+const exec = __nccwpck_require__(5236);
+const {
+  SOURCE_TOKEN_AUDIENCE,
+  SOURCE_CLONE_URL,
+  SOURCE_DIR_SEPARATOR,
+  SOURCE_REPOS_SPLIT,
+  EMPTY_INPUT_QUOTES,
+  ERROR_NO_ID_TOKEN,
+  ERROR_SOURCE_TOKEN,
+} = __nccwpck_require__(9992);
+
+/**
+ * @param {string} input - The source-repos input, e.g. "owner/a, owner/b"
+ * @returns {string[]} Each repo once, in order
+ */
+function parseSourceRepos(input) {
+  const repos = String(input || '')
+    .split(SOURCE_REPOS_SPLIT)
+    .map((repo) => repo.trim())
+    .filter((repo) => repo && !EMPTY_INPUT_QUOTES.test(repo));
+  return [...new Set(repos)];
+}
+
+async function requestReadOnlyKey({ repos, tokenUrl }) {
+  let idToken;
+  try {
+    idToken = await core.getIDToken(SOURCE_TOKEN_AUDIENCE);
+  } catch (err) {
+    throw new Error(ERROR_NO_ID_TOKEN + err.message);
+  }
+
+  const response = await fetch(tokenUrl, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${idToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sources: repos }),
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || !body.token) {
+    throw new Error(ERROR_SOURCE_TOKEN + (body.message || `HTTP ${response.status}`));
+  }
+  return body.token;
+}
+
+/**
+ * Gets a read-only key for the source repos from the blog writer backend, then
+ * clones each one outside the blog repo so nothing from them can be committed.
+ * Clones skip file contents until they're read, keeping them fast.
+ * @param {object} options
+ * @param {string[]} options.repos - owner/name of each source repo
+ * @param {string} options.tokenUrl - The backend's source-token endpoint
+ * @param {string} options.workDir - Folder to clone into
+ * @returns {Promise<Array<{name: string, dir: string}>>}
+ */
+async function fetchSourceRepos({ repos, tokenUrl, workDir }) {
+  if (!repos || repos.length === 0) return [];
+
+  const token = await requestReadOnlyKey({ repos, tokenUrl });
+  core.setSecret(token);
+
+  const sources = [];
+  for (const repo of repos) {
+    const dir = path.join(workDir, repo.split('/').join(SOURCE_DIR_SEPARATOR));
+    const url = SOURCE_CLONE_URL.replace('{token}', token).replace('{repo}', repo);
+    core.info('Downloading source repo ' + repo);
+    await exec.exec('git', ['clone', '--filter=blob:none', '--quiet', url, dir], { silent: true });
+    sources.push({ name: repo, dir });
+  }
+  return sources;
+}
+
+module.exports = { parseSourceRepos, fetchSourceRepos };
 
 
 /***/ }),
