@@ -26,6 +26,14 @@ inputs:
     description: 'Automatically commit and push changes'
     required: false
     default: 'true'
+  publish:
+    description: 'push commits straight to commit-push-branch; pull-request opens one pull request per run into it for review (needs pull-requests: write, and the repo setting that lets Actions create pull requests)'
+    required: false
+    default: 'push'
+  github-token:
+    description: 'Token used to open pull requests in pull-request mode'
+    required: false
+    default: ${{ github.token }}
   commit-push-branch:
     description: 'Branch to push commits to'
     required: false
@@ -46,6 +54,10 @@ outputs:
     description: 'In setup mode, completed or skipped'
   keyword:
     description: 'The target keyword this post was built around, or empty if none was configured or all were used'
+  pr-url:
+    description: 'In pull-request mode, the pull request opened (or the open one that made this run skip)'
+  skipped:
+    description: 'true when a pull-request run skipped because a blog writer pull request is still open'
   cost-usd:
     description: 'What the Claude calls in this run cost in US dollars, as reported by Claude Code'
   build-check:

@@ -89,6 +89,21 @@ const KEYWORD_PROMPT_SECTION = [
 ].join('\n');
 const PLACEHOLDER_KEYWORD = '{{KEYWORD}}';
 
+// Publishing: push commits straight to the branch, or open a pull request per run
+const PUBLISH_PUSH = 'push';
+const PUBLISH_PULL_REQUEST = 'pull-request';
+const VALID_PUBLISH_MODES = [PUBLISH_PUSH, PUBLISH_PULL_REQUEST];
+const PR_BRANCH_PREFIX = 'blog-writer/';
+const PR_LIST_PAGE_SIZE = 100;
+const HTTP_FORBIDDEN = 403;
+const PR_TITLE_POST = 'Blog post for {date}';
+const PR_TITLE_KEYWORD = ': {keyword}';
+const PR_BODY_INTRO = 'Opened by the blog writer. Merge to publish, or close to discard.';
+const PR_BODY_COMMITS_HEADING = '### Commits';
+const PR_BODY_COST_HEADING = '### Claude cost';
+const ERROR_INVALID_PUBLISH_MODE = 'Invalid publish setting, use push or pull-request: ';
+const ERROR_PR_NOT_ALLOWED = 'GitHub would not let this workflow open a pull request. In the repo, go to Settings > Actions > General > Workflow permissions, tick "Allow GitHub Actions to create and approve pull requests", and make sure the workflow has "pull-requests: write" permission.';
+
 // Action modes
 const MODE_GENERATE = 'generate';
 const MODE_SETUP = 'setup';
@@ -154,6 +169,19 @@ const BRIEF_EXCLUDED_PATTERNS = [
 ];
 
 module.exports = {
+  PUBLISH_PUSH,
+  PUBLISH_PULL_REQUEST,
+  VALID_PUBLISH_MODES,
+  PR_BRANCH_PREFIX,
+  PR_LIST_PAGE_SIZE,
+  HTTP_FORBIDDEN,
+  PR_TITLE_POST,
+  PR_TITLE_KEYWORD,
+  PR_BODY_INTRO,
+  PR_BODY_COMMITS_HEADING,
+  PR_BODY_COST_HEADING,
+  ERROR_INVALID_PUBLISH_MODE,
+  ERROR_PR_NOT_ALLOWED,
   KEYWORDS_STATE_PATH,
   KEYWORD_PROMPT_SECTION,
   PLACEHOLDER_KEYWORD,

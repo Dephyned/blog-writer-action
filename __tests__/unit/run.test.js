@@ -9,6 +9,13 @@ const { commitAndPush } = require('../../src/commit');
 const { installDependencies } = require('../../src/dependencies');
 const { verifyPostBuild } = require('../../src/build-check');
 const { pickKeyword, markKeywordUsed } = require('../../src/keywords');
+const {
+  findOpenBlogPullRequest,
+  startPullRequestBranch,
+  finishPullRequest,
+  abandonPullRequestBranch,
+} = require('../../src/publish');
+const { getOctokit } = require('@actions/github');
 const { recordCost, resetCosts } = require('../../src/cost');
 const { run } = require('../../src/run');
 
@@ -33,6 +40,17 @@ jest.mock('../../src/prompt', () => ({ buildPrompt: jest.fn(() => 'the prompt') 
 jest.mock('../../src/validate', () => ({ runValidation: jest.fn() }));
 jest.mock('../../src/build-check', () => ({ verifyPostBuild: jest.fn(async () => 'passed') }));
 jest.mock('../../src/commit', () => ({ commitAndPush: jest.fn(async () => true) }));
+jest.mock('../../src/publish', () => ({
+  resolvePublishMode: jest.fn((value) => value || 'push'),
+  findOpenBlogPullRequest: jest.fn(async () => null),
+  startPullRequestBranch: jest.fn(async () => 'blog-writer/2026-10-12-777'),
+  finishPullRequest: jest.fn(async () => 'https://github.com/MarketMee/app/pull/64'),
+  abandonPullRequestBranch: jest.fn(async () => {}),
+}));
+jest.mock('@actions/github', () => ({
+  getOctokit: jest.fn(() => ({ rest: {} })),
+  context: { repo: { owner: 'MarketMee', repo: 'app' } },
+}));
 jest.mock('../../src/keywords', () => ({
   pickKeyword: jest.fn(() => null),
   markKeywordUsed: jest.fn(() => '.blog/keywords-used.json'),
@@ -73,6 +91,7 @@ describe('Feature: Running the action', () => {
     runClaude.mockImplementation(track('post'));
     commitAndPush.mockImplementation(track('commit', async () => true));
     verifyPostBuild.mockResolvedValue('passed');
+    pickKeyword.mockReturnValue(null);
   });
 
   describe('Scenario: First run on a new repo', () => {
@@ -298,6 +317,97 @@ describe('Feature: Running the action', () => {
       verifyPostBuild.mockRejectedValue(new Error('The new post broke the build'));
       await run();
       expect(markKeywordUsed).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Scenario: Publishing as a pull request', () => {
+    const PR_BRANCH = 'blog-writer/2026-10-12-777';
+
+    beforeEach(() => {
+      inputs.publish = 'pull-request';
+      inputs['github-token'] = 'ghs_token';
+      process.env.GITHUB_RUN_ID = '777';
+      findOpenBlogPullRequest.mockResolvedValue(null);
+      runSetup.mockImplementation(track('setup', async () => 'completed'));
+    });
+
+    afterEach(() => {
+      delete inputs.publish;
+      delete inputs['github-token'];
+      delete process.env.GITHUB_RUN_ID;
+    });
+
+    it('Given a blog writer pull request is already open, When the action runs, Then it skips without spending anything', async () => {
+      // Given
+      findOpenBlogPullRequest.mockResolvedValue({ number: 63, url: 'https://github.com/MarketMee/app/pull/63' });
+      resolveMode.mockReturnValue('setup');
+
+      // When
+      await run();
+
+      // Then
+      expect(runSetup).not.toHaveBeenCalled();
+      expect(runClaude).not.toHaveBeenCalled();
+      expect(startPullRequestBranch).not.toHaveBeenCalled();
+      expect(core.setOutput).toHaveBeenCalledWith('skipped', 'true');
+      expect(core.setOutput).toHaveBeenCalledWith('pr-url', 'https://github.com/MarketMee/app/pull/63');
+      expect(core.setFailed).not.toHaveBeenCalled();
+    });
+
+    it('Given a new repo, When the action runs, Then setup, brief, build fixes and the post all commit to the run branch and one pull request is opened into main', async () => {
+      // Given
+      resolveMode.mockReturnValue('setup');
+      readConfig.mockReturnValue(PRODUCT_CONFIG);
+
+      // When
+      await run();
+
+      // Then
+      expect(getOctokit).toHaveBeenCalledWith('ghs_token');
+      expect(startPullRequestBranch).toHaveBeenCalledWith(expect.objectContaining({ repoRoot: process.cwd(), runId: '777' }));
+      expect(runSetup).toHaveBeenCalledWith(expect.objectContaining({ branch: PR_BRANCH }));
+      expect(refreshBrief).toHaveBeenCalledWith(expect.objectContaining({ branch: PR_BRANCH }));
+      expect(verifyPostBuild).toHaveBeenCalledWith(expect.objectContaining({ branch: PR_BRANCH }));
+      expect(commitAndPush).toHaveBeenCalledWith(expect.objectContaining({ branch: PR_BRANCH }));
+      expect(finishPullRequest).toHaveBeenCalledWith(
+        expect.objectContaining({ baseBranch: 'main', branch: PR_BRANCH, details: expect.arrayContaining([expect.stringMatching(/^Total:/)]) })
+      );
+      expect(core.setOutput).toHaveBeenCalledWith('pr-url', 'https://github.com/MarketMee/app/pull/64');
+      expect(core.setFailed).not.toHaveBeenCalled();
+    });
+
+    it('Given a target keyword, When the pull request is opened, Then its title names the keyword', async () => {
+      resolveMode.mockReturnValue('generate');
+      readConfig.mockReturnValue({ ...SERVICE_CONFIG, keywords: ['commit to tweet'] });
+      pickKeyword.mockReturnValue('commit to tweet');
+      await run();
+      expect(finishPullRequest.mock.calls[0][0].title).toContain('commit to tweet');
+    });
+
+    it('Given the run fails, When it ends, Then no pull request is opened and the run branch is deleted', async () => {
+      // Given
+      resolveMode.mockReturnValue('setup');
+      runSetup.mockRejectedValue(new Error('Setup stopped, no blog found in this repo: none'));
+
+      // When
+      await run();
+
+      // Then
+      expect(core.setFailed).toHaveBeenCalled();
+      expect(finishPullRequest).not.toHaveBeenCalled();
+      expect(abandonPullRequestBranch).toHaveBeenCalledWith({ repoRoot: process.cwd(), branch: PR_BRANCH });
+    });
+  });
+
+  describe('Scenario: Publishing straight to main', () => {
+    it('Given no publish setting, When a post is generated, Then it commits to the push branch and opens no pull request', async () => {
+      resolveMode.mockReturnValue('generate');
+      readConfig.mockReturnValue(SERVICE_CONFIG);
+      await run();
+      expect(startPullRequestBranch).not.toHaveBeenCalled();
+      expect(findOpenBlogPullRequest).not.toHaveBeenCalled();
+      expect(commitAndPush).toHaveBeenCalledWith(expect.objectContaining({ branch: 'main' }));
+      expect(finishPullRequest).not.toHaveBeenCalled();
     });
   });
 });
