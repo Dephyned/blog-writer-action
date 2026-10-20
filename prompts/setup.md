@@ -52,6 +52,7 @@ Write `{{CONFIG_PATH}}` as valid JSON:
   },
   "locations": ["<city>", "<city>"],
   "keywords": [],
+  "contentKeywords": [],
   "postCountCommand": "<shell command that prints the number of existing posts>",
   "claude": { "allowedTools": "Read,Edit,Glob,Grep", "maxTurns": 25 },
   "buildCommand": "<the repo's build command, or empty string if none>",
@@ -61,6 +62,7 @@ Write `{{CONFIG_PATH}}` as valid JSON:
 ```
 
 - Leave `"keywords": []` empty. The owner adds target search keywords there later; each post then uses the next unused one.
+- Leave `"contentKeywords": []` empty. The owner adds keywords there later for posts to work in naturally where they fit.
 - `topicSchedule` keys are days of the week (0 = Sunday). Spread the main services across the week, weighting the most important service.
 
 Then write `{{PROMPT_TEMPLATE_PATH}}` from the reference template at the end, adapted to this repo. Use `{{COMPANY_NAME}}`, `{{PHONE}}`, and `{{WEBSITE}}` where the post should mention the business, and keep `{{TOPIC}}`, `{{LOCATION}}`, and `{{DATE}}` as they are; they are filled in at run time.
@@ -76,6 +78,7 @@ Write `{{CONFIG_PATH}}` as valid JSON:
   "promptTemplatePath": "{{PROMPT_TEMPLATE_PATH}}",
   "productBrief": {},
   "keywords": [],
+  "contentKeywords": [],
   "placeholders": {
     "PRODUCT_NAME": "<product name>",
     "WEBSITE": "<domain, or empty string if none>"
@@ -90,6 +93,7 @@ Write `{{CONFIG_PATH}}` as valid JSON:
 
 - `"productBrief": {}` turns on the product brief with its defaults. Leave it empty.
 - Leave `"keywords": []` empty. The owner adds target search keywords there later; each post then uses the next unused one.
+- Leave `"contentKeywords": []` empty. The owner adds keywords there later for posts to work in naturally where they fit.
 - Do not add `topicSchedule` or `locations`.
 
 Then write `{{PROMPT_TEMPLATE_PATH}}`. Use the reference template at the end only for its structure (checking existing posts, inserting the post in the right format). Replace the topic and location parts with these instructions, keeping `{{PRODUCT_BRIEF_PATH}}` and `{{DATE}}` exactly as written:

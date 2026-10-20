@@ -60,6 +60,7 @@ jest.mock('../../src/keywords', () => ({
   pickKeyword: jest.fn(() => null),
   markKeywordUsed: jest.fn(() => '.blog/keywords-used.json'),
   addKeywordToPrompt: jest.fn((prompt, keyword) => (keyword ? `${prompt} [keyword: ${keyword}]` : prompt)),
+  addContentKeywordsToPrompt: jest.fn((prompt, keywords) => (keywords && keywords.length ? `${prompt} [content: ${keywords.join(', ')}]` : prompt)),
 }));
 jest.mock('../../src/dependencies', () => ({ installDependencies: jest.fn(async () => 'skipped') }));
 
@@ -449,6 +450,24 @@ describe('Feature: Running the action', () => {
       readConfig.mockReturnValue(SERVICE_CONFIG);
       await run();
       expect(core.warning).toHaveBeenCalledWith(expect.stringContaining('source-repos'));
+    });
+  });
+
+  describe('Scenario: Content keywords', () => {
+    it('Given content keywords and a target keyword, When a post is generated, Then both go into the prompt and only the target keyword is recorded', async () => {
+      // Given
+      const config = { ...SERVICE_CONFIG, keywords: ['commit to tweet'], contentKeywords: ['autopilot', 'scheduling'] };
+      resolveMode.mockReturnValue('generate');
+      readConfig.mockReturnValue(config);
+      pickKeyword.mockReturnValue('commit to tweet');
+
+      // When
+      await run();
+
+      // Then
+      expect(runClaude).toHaveBeenCalledWith('the prompt [keyword: commit to tweet] [content: autopilot, scheduling]', config.claude, 'post');
+      expect(markKeywordUsed).toHaveBeenCalledTimes(1);
+      expect(markKeywordUsed).toHaveBeenCalledWith(expect.objectContaining({ keyword: 'commit to tweet' }));
     });
   });
 });

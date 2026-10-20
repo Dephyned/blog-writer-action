@@ -13,7 +13,7 @@ const { runSetup } = require('./setup');
 const { refreshBrief } = require('./brief');
 const { installDependencies } = require('./dependencies');
 const { getCostSummary } = require('./cost');
-const { pickKeyword, markKeywordUsed, addKeywordToPrompt } = require('./keywords');
+const { pickKeyword, markKeywordUsed, addKeywordToPrompt, addContentKeywordsToPrompt } = require('./keywords');
 const {
   resolvePublishMode,
   findOpenBlogPullRequest,
@@ -177,7 +177,10 @@ async function writePost({ configPath, branch }) {
   core.info('Building prompt...');
   const keyword = pickKeyword({ repoRoot: process.cwd(), keywords: config.keywords });
   if (keyword) core.info('Target keyword: ' + keyword);
-  const prompt = addKeywordToPrompt(buildPrompt({ config, topic, location, date }), keyword);
+  const prompt = addContentKeywordsToPrompt(
+    addKeywordToPrompt(buildPrompt({ config, topic, location, date }), keyword),
+    config.contentKeywords
+  );
 
   // 6. Install and run Claude Code CLI
   core.info('Installing Claude Code CLI...');

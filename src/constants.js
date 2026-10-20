@@ -89,6 +89,18 @@ const KEYWORD_PROMPT_SECTION = [
 ].join('\n');
 const PLACEHOLDER_KEYWORD = '{{KEYWORD}}';
 
+// Content keywords: an optional list in the config, offered to every post and never used up
+const CONTENT_KEYWORDS_PROMPT_SECTION = [
+  '',
+  '## Keywords To Work In',
+  '',
+  'These are search keywords the business wants its posts to rank for: {{CONTENT_KEYWORDS}}.',
+  'Work in the ones that fit this post\'s topic naturally, mainly in the body text, the way a person writing about the subject would say them. Skip any that do not fit; it is fine to use only one or two, or none.',
+  'Put a keyword in the title or heading only when it reads naturally there. It is not required.',
+  'Do not repeat the exact phrase over and over. Use each keyword once or twice at most, and use close variations instead of repeating it word for word. Readability comes first.',
+].join('\n');
+const PLACEHOLDER_CONTENT_KEYWORDS = '{{CONTENT_KEYWORDS}}';
+
 // Publishing: push commits straight to the branch, or open a pull request per run
 const PUBLISH_PUSH = 'push';
 const PUBLISH_PULL_REQUEST = 'pull-request';
@@ -212,6 +224,8 @@ module.exports = {
   KEYWORDS_STATE_PATH,
   KEYWORD_PROMPT_SECTION,
   PLACEHOLDER_KEYWORD,
+  CONTENT_KEYWORDS_PROMPT_SECTION,
+  PLACEHOLDER_CONTENT_KEYWORDS,
   CLAUDE_LABEL_SETUP,
   CLAUDE_LABEL_BRIEF,
   CLAUDE_LABEL_POST,

@@ -1,7 +1,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { pickKeyword, markKeywordUsed, addKeywordToPrompt } = require('../../src/keywords');
+const { pickKeyword, markKeywordUsed, addKeywordToPrompt, addContentKeywordsToPrompt } = require('../../src/keywords');
 
 const STATE_PATH = '.blog/keywords-used.json';
 
@@ -95,6 +95,43 @@ describe('Feature: Target keywords', () => {
 
     it('Given no keyword, When the prompt is prepared, Then it is unchanged', () => {
       expect(addKeywordToPrompt('Write a post.', null)).toBe('Write a post.');
+    });
+  });
+
+  describe('Scenario: Adding content keywords to the prompt', () => {
+    it('Given no content keywords, When the prompt is built, Then it is unchanged', () => {
+      expect(addContentKeywordsToPrompt('Write a post.', [])).toBe('Write a post.');
+      expect(addContentKeywordsToPrompt('Write a post.', undefined)).toBe('Write a post.');
+    });
+
+    it('Given content keywords, When the prompt is built, Then every keyword is listed after the original prompt', () => {
+      // When
+      const prompt = addContentKeywordsToPrompt('Write a post.', ['drain cleaning', 'water heater repair']);
+
+      // Then
+      expect(prompt.startsWith('Write a post.')).toBe(true);
+      expect(prompt).toContain('"drain cleaning"');
+      expect(prompt).toContain('"water heater repair"');
+    });
+
+    it('Given content keywords, When the prompt is built, Then it says to use only the ones that fit, keep titles and headings optional, and avoid repeating them', () => {
+      const prompt = addContentKeywordsToPrompt('Write a post.', ['drain cleaning']);
+      expect(prompt).toMatch(/naturally/i);
+      expect(prompt).toMatch(/skip/i);
+      expect(prompt).toMatch(/title or heading only when/i);
+      expect(prompt).toMatch(/variation/i);
+      expect(prompt).toMatch(/do not repeat/i);
+    });
+
+    it('Given content keywords, When the prompt is built, Then no keyword is marked as used', () => {
+      addContentKeywordsToPrompt('Write a post.', ['drain cleaning']);
+      expect(fs.existsSync(path.join(repoRoot, STATE_PATH))).toBe(false);
+    });
+
+    it('Given both a target keyword and content keywords, When the prompt is built, Then both sections are included', () => {
+      const prompt = addContentKeywordsToPrompt(addKeywordToPrompt('Write a post.', 'commit to tweet'), ['autopilot']);
+      expect(prompt).toContain('"commit to tweet"');
+      expect(prompt).toContain('"autopilot"');
     });
   });
 });

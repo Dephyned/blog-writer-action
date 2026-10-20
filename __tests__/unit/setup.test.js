@@ -310,4 +310,15 @@ describe('Feature: Setup mode', () => {
       expect(runClaude.mock.calls[0][0]).toContain('"keywords": []');
     });
   });
+
+  describe('Scenario: Content keywords option', () => {
+    it('Given the setup prompt, When it is sent to Claude, Then it asks for an empty contentKeywords list so the option is there to fill in later', async () => {
+      claudeWrites(repoRoot, {
+        [CONFIG_PATH]: JSON.stringify(VALID_CONFIG),
+        [PROMPT_PATH]: '# prompt',
+      });
+      await runSetup({ repoRoot, configPath: CONFIG_PATH, branch: 'main' });
+      expect(runClaude.mock.calls[0][0]).toContain('"contentKeywords": []');
+    });
+  });
 });

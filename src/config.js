@@ -69,6 +69,7 @@ function readConfig(configPath) {
     },
     productBrief: readProductBrief(parsed.productBrief),
     keywords: readKeywords(parsed.keywords),
+    contentKeywords: readKeywords(parsed.contentKeywords),
     validationCommand: parsed.validationCommand || '',
     buildCommand: parsed.buildCommand || '',
     filesToCommit: parsed.filesToCommit || [],

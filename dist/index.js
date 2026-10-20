@@ -30639,6 +30639,7 @@ function readConfig(configPath) {
     },
     productBrief: readProductBrief(parsed.productBrief),
     keywords: readKeywords(parsed.keywords),
+    contentKeywords: readKeywords(parsed.contentKeywords),
     validationCommand: parsed.validationCommand || '',
     buildCommand: parsed.buildCommand || '',
     filesToCommit: parsed.filesToCommit || [],
@@ -30744,6 +30745,18 @@ const KEYWORD_PROMPT_SECTION = [
   'Build this post around the search keyword "{{KEYWORD}}". Use it naturally in the title, the slug, the first paragraph, at least one H2 heading, and the meta description. Pick an angle that answers what someone searching for it wants to know. Every other instruction above still applies, including only stating facts you can support.',
 ].join('\n');
 const PLACEHOLDER_KEYWORD = '{{KEYWORD}}';
+
+// Content keywords: an optional list in the config, offered to every post and never used up
+const CONTENT_KEYWORDS_PROMPT_SECTION = [
+  '',
+  '## Keywords To Work In',
+  '',
+  'These are search keywords the business wants its posts to rank for: {{CONTENT_KEYWORDS}}.',
+  'Work in the ones that fit this post\'s topic naturally, mainly in the body text, the way a person writing about the subject would say them. Skip any that do not fit; it is fine to use only one or two, or none.',
+  'Put a keyword in the title or heading only when it reads naturally there. It is not required.',
+  'Do not repeat the exact phrase over and over. Use each keyword once or twice at most, and use close variations instead of repeating it word for word. Readability comes first.',
+].join('\n');
+const PLACEHOLDER_CONTENT_KEYWORDS = '{{CONTENT_KEYWORDS}}';
 
 // Publishing: push commits straight to the branch, or open a pull request per run
 const PUBLISH_PUSH = 'push';
@@ -30868,6 +30881,8 @@ module.exports = {
   KEYWORDS_STATE_PATH,
   KEYWORD_PROMPT_SECTION,
   PLACEHOLDER_KEYWORD,
+  CONTENT_KEYWORDS_PROMPT_SECTION,
+  PLACEHOLDER_CONTENT_KEYWORDS,
   CLAUDE_LABEL_SETUP,
   CLAUDE_LABEL_BRIEF,
   CLAUDE_LABEL_POST,
@@ -31256,7 +31271,13 @@ module.exports = { FIX_POST_PROMPT_TEMPLATE };
 
 const fs = __nccwpck_require__(9896);
 const path = __nccwpck_require__(6928);
-const { KEYWORDS_STATE_PATH, KEYWORD_PROMPT_SECTION, PLACEHOLDER_KEYWORD } = __nccwpck_require__(9992);
+const {
+  KEYWORDS_STATE_PATH,
+  KEYWORD_PROMPT_SECTION,
+  PLACEHOLDER_KEYWORD,
+  CONTENT_KEYWORDS_PROMPT_SECTION,
+  PLACEHOLDER_CONTENT_KEYWORDS,
+} = __nccwpck_require__(9992);
 
 const normalize = (keyword) => keyword.trim().toLowerCase();
 
@@ -31305,7 +31326,17 @@ function addKeywordToPrompt(prompt, keyword) {
   return prompt + '\n' + KEYWORD_PROMPT_SECTION.split(PLACEHOLDER_KEYWORD).join(keyword);
 }
 
-module.exports = { pickKeyword, markKeywordUsed, addKeywordToPrompt };
+/**
+ * Appends the content keyword list, which every post may draw on where it fits.
+ * Unlike target keywords, these are never used up.
+ */
+function addContentKeywordsToPrompt(prompt, keywords) {
+  if (!keywords || keywords.length === 0) return prompt;
+  const list = keywords.map((keyword) => '"' + keyword + '"').join(', ');
+  return prompt + '\n' + CONTENT_KEYWORDS_PROMPT_SECTION.split(PLACEHOLDER_CONTENT_KEYWORDS).join(list);
+}
+
+module.exports = { pickKeyword, markKeywordUsed, addKeywordToPrompt, addContentKeywordsToPrompt };
 
 
 /***/ }),
@@ -31627,7 +31658,7 @@ const { runSetup } = __nccwpck_require__(3292);
 const { refreshBrief } = __nccwpck_require__(3509);
 const { installDependencies } = __nccwpck_require__(1596);
 const { getCostSummary } = __nccwpck_require__(2552);
-const { pickKeyword, markKeywordUsed, addKeywordToPrompt } = __nccwpck_require__(5577);
+const { pickKeyword, markKeywordUsed, addKeywordToPrompt, addContentKeywordsToPrompt } = __nccwpck_require__(5577);
 const {
   resolvePublishMode,
   findOpenBlogPullRequest,
@@ -31791,7 +31822,10 @@ async function writePost({ configPath, branch }) {
   core.info('Building prompt...');
   const keyword = pickKeyword({ repoRoot: process.cwd(), keywords: config.keywords });
   if (keyword) core.info('Target keyword: ' + keyword);
-  const prompt = addKeywordToPrompt(buildPrompt({ config, topic, location, date }), keyword);
+  const prompt = addContentKeywordsToPrompt(
+    addKeywordToPrompt(buildPrompt({ config, topic, location, date }), keyword),
+    config.contentKeywords
+  );
 
   // 6. Install and run Claude Code CLI
   core.info('Installing Claude Code CLI...');
@@ -31925,6 +31959,7 @@ Write \`{{CONFIG_PATH}}\` as valid JSON:
   },
   "locations": ["<city>", "<city>"],
   "keywords": [],
+  "contentKeywords": [],
   "postCountCommand": "<shell command that prints the number of existing posts>",
   "claude": { "allowedTools": "Read,Edit,Glob,Grep", "maxTurns": 25 },
   "buildCommand": "<the repo's build command, or empty string if none>",
@@ -31934,6 +31969,7 @@ Write \`{{CONFIG_PATH}}\` as valid JSON:
 \`\`\`
 
 - Leave \`"keywords": []\` empty. The owner adds target search keywords there later; each post then uses the next unused one.
+- Leave \`"contentKeywords": []\` empty. The owner adds keywords there later for posts to work in naturally where they fit.
 - \`topicSchedule\` keys are days of the week (0 = Sunday). Spread the main services across the week, weighting the most important service.
 
 Then write \`{{PROMPT_TEMPLATE_PATH}}\` from the reference template at the end, adapted to this repo. Use \`{{COMPANY_NAME}}\`, \`{{PHONE}}\`, and \`{{WEBSITE}}\` where the post should mention the business, and keep \`{{TOPIC}}\`, \`{{LOCATION}}\`, and \`{{DATE}}\` as they are; they are filled in at run time.
@@ -31949,6 +31985,7 @@ Write \`{{CONFIG_PATH}}\` as valid JSON:
   "promptTemplatePath": "{{PROMPT_TEMPLATE_PATH}}",
   "productBrief": {},
   "keywords": [],
+  "contentKeywords": [],
   "placeholders": {
     "PRODUCT_NAME": "<product name>",
     "WEBSITE": "<domain, or empty string if none>"
@@ -31963,6 +32000,7 @@ Write \`{{CONFIG_PATH}}\` as valid JSON:
 
 - \`"productBrief": {}\` turns on the product brief with its defaults. Leave it empty.
 - Leave \`"keywords": []\` empty. The owner adds target search keywords there later; each post then uses the next unused one.
+- Leave \`"contentKeywords": []\` empty. The owner adds keywords there later for posts to work in naturally where they fit.
 - Do not add \`topicSchedule\` or \`locations\`.
 
 Then write \`{{PROMPT_TEMPLATE_PATH}}\`. Use the reference template at the end only for its structure (checking existing posts, inserting the post in the right format). Replace the topic and location parts with these instructions, keeping \`{{PRODUCT_BRIEF_PATH}}\` and \`{{DATE}}\` exactly as written:

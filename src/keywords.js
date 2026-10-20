@@ -1,6 +1,12 @@
 const fs = require('fs');
 const path = require('path');
-const { KEYWORDS_STATE_PATH, KEYWORD_PROMPT_SECTION, PLACEHOLDER_KEYWORD } = require('./constants');
+const {
+  KEYWORDS_STATE_PATH,
+  KEYWORD_PROMPT_SECTION,
+  PLACEHOLDER_KEYWORD,
+  CONTENT_KEYWORDS_PROMPT_SECTION,
+  PLACEHOLDER_CONTENT_KEYWORDS,
+} = require('./constants');
 
 const normalize = (keyword) => keyword.trim().toLowerCase();
 
@@ -49,4 +55,14 @@ function addKeywordToPrompt(prompt, keyword) {
   return prompt + '\n' + KEYWORD_PROMPT_SECTION.split(PLACEHOLDER_KEYWORD).join(keyword);
 }
 
-module.exports = { pickKeyword, markKeywordUsed, addKeywordToPrompt };
+/**
+ * Appends the content keyword list, which every post may draw on where it fits.
+ * Unlike target keywords, these are never used up.
+ */
+function addContentKeywordsToPrompt(prompt, keywords) {
+  if (!keywords || keywords.length === 0) return prompt;
+  const list = keywords.map((keyword) => '"' + keyword + '"').join(', ');
+  return prompt + '\n' + CONTENT_KEYWORDS_PROMPT_SECTION.split(PLACEHOLDER_CONTENT_KEYWORDS).join(list);
+}
+
+module.exports = { pickKeyword, markKeywordUsed, addKeywordToPrompt, addContentKeywordsToPrompt };

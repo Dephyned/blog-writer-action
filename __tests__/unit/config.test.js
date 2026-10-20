@@ -167,4 +167,18 @@ describe('Feature: Config Loading', () => {
       expect(readConfig('blog.config.json').keywords).toEqual(['commit to tweet', 'autopilot']);
     });
   });
+
+  describe('Scenario: Content keywords', () => {
+    it('Given a config without contentKeywords, When readConfig is called, Then they default to an empty list', () => {
+      fs.existsSync.mockReturnValue(true);
+      fs.readFileSync.mockReturnValue(JSON.stringify({}));
+      expect(readConfig('blog.config.json').contentKeywords).toEqual([]);
+    });
+
+    it('Given contentKeywords with blanks, non-strings and case duplicates, When readConfig is called, Then they are trimmed and deduplicated', () => {
+      fs.existsSync.mockReturnValue(true);
+      fs.readFileSync.mockReturnValue(JSON.stringify({ contentKeywords: [' drain cleaning ', '', 'Drain Cleaning', 'sewer line', 7] }));
+      expect(readConfig('blog.config.json').contentKeywords).toEqual(['drain cleaning', 'sewer line']);
+    });
+  });
 });
